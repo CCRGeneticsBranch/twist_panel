@@ -74,26 +74,46 @@ ls -lh /fdb/bwa/indexes/hg38.fa*
 
 ### 5. Run Pipeline
 
-Snakemake can be invoked from **any working directory** using `--snakefile`:
+The pipeline is designed to run via the SLURM scheduler. Edit
+`config/slurm_profile.yaml` to set your account and partition, then:
 
 ```bash
 PIPELINE=/data/khanlab3/gb_omics/Erica/software/twist_panel
 
-# Dry run (see what will be executed)
+# Dry run — check what will execute without submitting any jobs
 snakemake --snakefile $PIPELINE/Snakefile -n
 
-# Run with 8 cores
-snakemake --snakefile $PIPELINE/Snakefile --use-envmodules -j 8
+# Submit all jobs to SLURM (standard usage)
+snakemake --snakefile $PIPELINE/Snakefile \
+    --profile $PIPELINE/config/slurm_profile.yaml
 
-# Run with all available cores
-snakemake --snakefile $PIPELINE/Snakefile --use-envmodules -j all
+# Resume after failure (re-submits only incomplete jobs)
+snakemake --snakefile $PIPELINE/Snakefile \
+    --profile $PIPELINE/config/slurm_profile.yaml \
+    --rerun-incomplete
 
-# Run specific rule (e.g., just QC)
-snakemake --snakefile $PIPELINE/Snakefile --use-envmodules fastqc_raw -j 8
-
-# Run with a SLURM profile
-snakemake --snakefile $PIPELINE/Snakefile --use-envmodules -j 100 --profile slurm
+# Run a single rule locally for testing (bypasses SLURM)
+snakemake --snakefile $PIPELINE/Snakefile --use-envmodules fastqc_raw -j 1
 ```
+
+### SLURM profile
+
+Edit `config/slurm_profile.yaml` to match your cluster before the first run:
+
+```yaml
+jobs: 100                    # max simultaneous SLURM jobs
+use-envmodules: true
+
+default-resources:
+  slurm_account: "your_account"   # ← change this
+  slurm_partition: "norm"         # ← change this
+  runtime: 240                    # minutes
+  mem_mb: 8000
+  cpus_per_task: 8
+```
+
+Per-rule overrides for resource-intensive steps are already set in
+`config/slurm_profile.yaml` — adjust as needed.
 
 ### 6. View Results
 
@@ -248,22 +268,29 @@ ls -lh /path/to/raw/fastqs/
 
 ### 3. Memory Issues
 
-Increase memory allocation in `config.yaml`:
+Increase `mem_mb` for the affected rule in `config/slurm_profile.yaml`:
+
 ```yaml
-memory_gb: 64  # Increase as needed
+set-resources:
+  merge_bam_alignment:
+    mem_mb: 32000
 ```
 
-Or limit threads:
-```bash
-snakemake -j 4  # Use fewer parallel jobs
+Or raise the Java heap globally:
+
+```yaml
+memory_gb: 8   # in config/config.yaml
 ```
 
 ### 4. Module Loading Issues
 
-Run with explicit module mode:
+Check available modules on your cluster:
+
 ```bash
-snakemake -j 8 --use-envmodules
+module avail fastqc multiqc bwa samtools picard fgbio
 ```
+
+Update the `modules` section in `config/config.yaml` with the exact names and versions shown.
 
 ## Tool Versions
 
