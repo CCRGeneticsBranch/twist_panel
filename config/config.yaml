@@ -4,7 +4,9 @@
 # ---------------------------------------------------------------------------
 # Samples
 # ---------------------------------------------------------------------------
-# Define samples as a dictionary or point to a CSV file (columns: sample, R1, R2)
+# Define samples as a dictionary or point to a CSV file (columns: sample, R1, R2).
+# R1/R2 values are filenames within raw_data_dir (not full paths).
+# The CSV path may be absolute or relative to the pipeline directory.
 samples:
   sample1:
     R1: "sample1_R1.fastq.gz"
@@ -18,10 +20,13 @@ samples:
 
 # ---------------------------------------------------------------------------
 # Directories
+# Use absolute paths so the pipeline code, raw data, and output can each
+# live in a different location on the filesystem.
 # ---------------------------------------------------------------------------
-raw_data_dir: "data/raw"
-results_dir:  "results"
-logs_dir:     "logs"
+raw_data_dir: "/path/to/raw/fastqs"   # directory containing your input fastq files
+results_dir:  "/path/to/output"        # where pipeline outputs will be written
+# logs_dir defaults to results_dir/logs — only set this to override
+# logs_dir: "/path/to/output/logs"
 
 # ---------------------------------------------------------------------------
 # Reference genome  (must be BWA-indexed)

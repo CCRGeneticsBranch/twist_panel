@@ -44,19 +44,23 @@ import os
 import pandas as pd
 from pathlib import Path
 
-configfile: "config/config.yaml"
-# This workflow is configured for module-based software provisioning.
-# Run Snakemake with: --use-envmodules
+# Resolve configfile relative to this Snakefile so the pipeline can be invoked
+# with --snakefile from any working directory.
+configfile: os.path.join(workflow.basedir, "config", "config.yaml")
+# Run with: snakemake --snakefile /path/to/Snakefile --use-envmodules -j <N>
+# Set raw_data_dir, results_dir, and logs_dir to absolute paths in config.yaml.
 
 SAMPLES = config.get("samples", {})
 if isinstance(SAMPLES, str):
-    SAMPLES = pd.read_csv(SAMPLES, index_col=0).to_dict("index")
+    # Relative paths are resolved from the pipeline directory, not the CWD.
+    samples_path = SAMPLES if os.path.isabs(SAMPLES) else os.path.join(workflow.basedir, SAMPLES)
+    SAMPLES = pd.read_csv(samples_path, index_col=0).to_dict("index")
 
 SAMPLE_NAMES = list(SAMPLES.keys()) if SAMPLES else []
 
 RAW_DATA  = config.get("raw_data_dir",  "data/raw")
 RESULTS   = config.get("results_dir",   "results")
-LOGS      = config.get("logs_dir",      "logs")
+LOGS      = config.get("logs_dir",      os.path.join(RESULTS, "logs"))
 REFERENCE = config.get("reference_genome", "")
 
 THREADS = config.get("threads", 8)
@@ -177,7 +181,7 @@ rule extract_umi_from_header:
         r2    = f"{RESULTS}/02_umi_extracted/{{sample}}_R2.fastq.gz",
         stats = f"{RESULTS}/02_umi_extracted/{{sample}}_umi_stats.txt"
     params:
-        script      = "scripts/extract_umi.py",
+        script      = os.path.join(workflow.basedir, "scripts", "extract_umi.py"),
         umi_pattern = UMI_PATTERN
     log:
         f"{LOGS}/02_umi_extracted/{{sample}}.log"
