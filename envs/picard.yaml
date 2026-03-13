@@ -1,0 +1,10 @@
+# Picard 2.27.1 is specified in Twist tech note DOC-001337.
+# Used for: FastqToSam, SamToFastq, MergeBamAlignment, CollectHsMetrics.
+name: twist_picard
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - picard=2.27.1
+  - openjdk=11      # Java 11 compatible with picard 2.27.x

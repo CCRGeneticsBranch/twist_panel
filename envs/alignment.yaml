@@ -1,0 +1,8 @@
+name: twist_alignment
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - bwa=0.7.17       # version specified in Twist tech note DOC-001337
+  - samtools=1.15.1  # version specified in Twist tech note DOC-001337

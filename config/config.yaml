@@ -1,0 +1,100 @@
+# Twist Bioscience UMI Panel Pipeline Configuration
+# Based on: DOC-001337 TechNote - Processing Sequencing Data Utilizing UMI
+
+# ---------------------------------------------------------------------------
+# Samples
+# ---------------------------------------------------------------------------
+# Define samples as a dictionary or point to a CSV file (columns: sample, R1, R2)
+samples:
+  sample1:
+    R1: "sample1_R1.fastq.gz"
+    R2: "sample1_R2.fastq.gz"
+  # sample2:
+  #   R1: "sample2_R1.fastq.gz"
+  #   R2: "sample2_R2.fastq.gz"
+
+# Alternatively, load from CSV:
+# samples: "metadata/samples.csv"
+
+# ---------------------------------------------------------------------------
+# Directories
+# ---------------------------------------------------------------------------
+raw_data_dir: "data/raw"
+results_dir:  "results"
+logs_dir:     "logs"
+
+# ---------------------------------------------------------------------------
+# Reference genome  (must be BWA-indexed)
+# ---------------------------------------------------------------------------
+reference_genome: "reference/hg38.fa"
+
+# ---------------------------------------------------------------------------
+# Tool JARs
+# Tool versions recommended by Twist tech note DOC-001337:
+#   picard  2.27.1
+#   fgbio   1.5.1   ← specifically required; newer versions change MergeBamAlignment
+#   bwa     0.7.17
+#   samtools 1.15.1
+# ---------------------------------------------------------------------------
+picard_jar: "/path/to/picard.jar"
+fgbio_jar:  "/path/to/fgbio.jar"
+java_bin:   "java"
+
+# If using conda environments the JARs will be resolved automatically.
+# Override picard_jar / fgbio_jar with the conda-installed paths, e.g.:
+#   picard_jar: "$(which picard)"  # only if conda env provides a wrapper
+# Or leave as /path/to/... and set them explicitly.
+
+# ---------------------------------------------------------------------------
+# Computational resources
+# ---------------------------------------------------------------------------
+threads:   8
+memory_gb: 4   # heap per tool (matches PDF: -Xmx4g)
+
+# ---------------------------------------------------------------------------
+# UMI configuration
+# ---------------------------------------------------------------------------
+# Regex to extract UMI1 and UMI2 from the fastq header read name.
+# Default matches:  @...:GTCGT+CAGGA ...
+#                         ^^^^^  ^^^^^  (5bp each)
+umi_pattern: "(?P<umi_1>[ACGTN]+)\\+(?P<umi_2>[ACGTN]+)"
+
+# fgbio read structure for ExtractUmisFromBam.
+# Standard Twist inline libraries: "5M2S+T"  (5bp UMI + 2bp skip + template)
+# Header-extracted UMIs (no skip bases): "5M+T"
+# Adjust if your UMIs are a different length or if skip bases were preserved.
+umi_read_structure: "5M+T"
+
+library_name: "Library1"
+
+# ---------------------------------------------------------------------------
+# fgbio GroupReadsByUmi parameters  (PDF step 7)
+# ---------------------------------------------------------------------------
+min_map_quality: 10    # --min-map-q (from PDF)
+umi_edit_distance: 1   # --edits     (from PDF)
+
+# ---------------------------------------------------------------------------
+# fgbio CallDuplexConsensusReads parameters  (PDF step 8)
+# ---------------------------------------------------------------------------
+error_rate_pre_umi: 45   # --error-rate-pre-umi (from PDF)
+# --min-reads: "duplex_min first_strand_min second_strand_min"
+# Twist recommends 2 1 1: duplex consensus requires ≥2 reads total,
+# ≥1 from the top strand and ≥1 from the bottom strand.
+min_reads: "2 1 1"
+
+# ---------------------------------------------------------------------------
+# Optional: CollectHsMetrics  (PDF step 6)
+# Provide Picard interval_list files for your capture panel.
+# Leave blank to skip this step.
+# ---------------------------------------------------------------------------
+bait_intervals:   ""   # path to probe/bait interval_list
+target_intervals: ""   # path to target interval_list
+probe_file: ""       # path to probe BED file for per-target coverage (optional)
+
+# ---------------------------------------------------------------------------
+# QC tools
+# ---------------------------------------------------------------------------
+analyses:
+  fastqc:  true
+  multiqc: true
+
