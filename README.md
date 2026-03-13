@@ -32,34 +32,21 @@ Your fastq files stay in their existing location on the filesystem. Set
 
 ### 3. Configure Pipeline
 
-Edit `config/config.yaml`:
+Sample metadata is always loaded from a CSV file.
 
-```yaml
-samples:
-  sample1:
-    R1: "sample1_R1.fastq.gz"   # filename only - within raw_data_dir
-    R2: "sample1_R2.fastq.gz"
-  sample2:
-    R1: "sample2_R1.fastq.gz"
-    R2: "sample2_R2.fastq.gz"
-
-raw_data_dir: "/path/to/raw/fastqs"
-results_dir:  "/path/to/output"
-reference_genome: "/fdb/bwa/indexes/hg38.fa"
-```
-
-Or use a CSV file:
-
-```
+```text
 # metadata/samples.csv
 sample,R1,R2
 sample1,sample1_R1.fastq.gz,sample1_R2.fastq.gz
 sample2,sample2_R1.fastq.gz,sample2_R2.fastq.gz
 ```
 
-Then in config.yaml:
+Then in `config/config.yaml`:
 ```yaml
 samples: "metadata/samples.csv"
+raw_data_dir: "/path/to/raw/fastqs"
+results_dir:  "/path/to/output"
+reference_genome: "/fdb/bwa/indexes/hg38.fa"
 ```
 
 ### 4. Use HPC Reference Genome

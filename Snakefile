@@ -50,11 +50,25 @@ configfile: os.path.join(workflow.basedir, "config", "config.yaml")
 # Run with: snakemake --snakefile /path/to/Snakefile --use-envmodules -j <N>
 # Set raw_data_dir, results_dir, and logs_dir to absolute paths in config.yaml.
 
-SAMPLES = config.get("samples", {})
-if isinstance(SAMPLES, str):
-    # Relative paths are resolved from the pipeline directory, not the CWD.
-    samples_path = SAMPLES if os.path.isabs(SAMPLES) else os.path.join(workflow.basedir, SAMPLES)
-    SAMPLES = pd.read_csv(samples_path, index_col=0).to_dict("index")
+samples_cfg = config.get("samples", "")
+if not isinstance(samples_cfg, str) or not samples_cfg.strip():
+    raise ValueError("config['samples'] must be a path to a CSV file with columns: sample,R1,R2")
+
+# Relative paths are resolved from the pipeline directory, not the CWD.
+samples_path = samples_cfg if os.path.isabs(samples_cfg) else os.path.join(workflow.basedir, samples_cfg)
+if not samples_path.lower().endswith(".csv"):
+    raise ValueError(f"Sample metadata must be a CSV file. Got: {samples_cfg}")
+
+samples_df = pd.read_csv(samples_path)
+required_cols = {"sample", "R1", "R2"}
+missing_cols = required_cols - set(samples_df.columns)
+if missing_cols:
+    raise ValueError(f"Sample metadata CSV is missing required columns: {sorted(missing_cols)}")
+
+if samples_df["sample"].duplicated().any():
+    raise ValueError("Sample metadata CSV contains duplicate sample names in 'sample' column")
+
+SAMPLES = samples_df.set_index("sample")[["R1", "R2"]].to_dict("index")
 
 SAMPLE_NAMES = list(SAMPLES.keys()) if SAMPLES else []
 

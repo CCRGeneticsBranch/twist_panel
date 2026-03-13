@@ -4,19 +4,10 @@
 # ---------------------------------------------------------------------------
 # Samples
 # ---------------------------------------------------------------------------
-# Define samples as a dictionary or point to a CSV file (columns: sample, R1, R2).
+# Samples must be provided via CSV (columns: sample,R1,R2).
 # R1/R2 values are filenames within raw_data_dir (not full paths).
 # The CSV path may be absolute or relative to the pipeline directory.
-samples:
-  sample1:
-    R1: "sample1_R1.fastq.gz"
-    R2: "sample1_R2.fastq.gz"
-  # sample2:
-  #   R1: "sample2_R1.fastq.gz"
-  #   R2: "sample2_R2.fastq.gz"
-
-# Alternatively, load from CSV:
-# samples: "metadata/samples.csv"
+samples: "config/samples_template.csv"
 
 # ---------------------------------------------------------------------------
 # Directories
