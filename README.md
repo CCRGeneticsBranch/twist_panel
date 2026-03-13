@@ -15,34 +15,20 @@ This pipeline processes raw sequencing reads through the following steps:
 
 ## Quick Start
 
-### 1. Installation
+### 1. Point config to your data and output directories
 
-```bash
-# Clone or navigate to the pipeline directory
-cd /data/khanlab3/gb_omics/Erica/software/twist_panel
+The pipeline code, raw data, and output each live in separate directories.
+Set absolute paths in `config/config.yaml`:
 
-# (Optional) Create conda environment for snakemake
-conda create -n snakemake snakemake -c conda-forge -c bioconda
-module load snakemake
+```yaml
+raw_data_dir: "/path/to/raw/fastqs"   # your input fastq files
+results_dir:  "/path/to/output"        # pipeline outputs (logs go in results_dir/logs/)
 ```
 
 ### 2. Prepare Input Data
 
-Create the following directory structure:
-
-```
-twist_panel/
-├── data/
-│   └── raw/
-│       ├── sample1_R1.fastq.gz
-│       ├── sample1_R2.fastq.gz
-│       ├── sample2_R1.fastq.gz
-│       └── sample2_R2.fastq.gz
-├── reference/
-│   ├── hg38.fa          (FASTA reference genome)
-│   └── hg38.fa.*        (BWA index files)
-└── [rest of pipeline structure]
-```
+Your fastq files stay in their existing location on the filesystem. Set
+`raw_data_dir` to that directory in `config/config.yaml`.
 
 ### 3. Configure Pipeline
 
@@ -51,14 +37,15 @@ Edit `config/config.yaml`:
 ```yaml
 samples:
   sample1:
-    R1: "sample1_R1.fastq.gz"
+    R1: "sample1_R1.fastq.gz"   # filename only - within raw_data_dir
     R2: "sample1_R2.fastq.gz"
   sample2:
     R1: "sample2_R1.fastq.gz"
     R2: "sample2_R2.fastq.gz"
 
-reference_genome: "reference/hg38.fa"
-reference_index: "reference/hg38.fa.bwt"
+raw_data_dir: "/path/to/raw/fastqs"
+results_dir:  "/path/to/output"
+reference_genome: "/fdb/bwa/indexes/hg38.fa"
 ```
 
 Or use a CSV file:
@@ -75,38 +62,37 @@ Then in config.yaml:
 samples: "metadata/samples.csv"
 ```
 
-### 4. Download Reference Genome
+### 4. Use HPC Reference Genome
+
+The reference is pre-indexed on the HPC filesystem. Set `reference_genome` in `config/config.yaml` to that shared path (current default: `/fdb/bwa/indexes/hg38.fa`).
+
+Optional check:
 
 ```bash
-# For human genome (hg38)
-cd reference
-wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz
-gunzip hg38.fa.gz
-
-# Create BWA index
-bwa index hg38.fa
+ls -lh /fdb/bwa/indexes/hg38.fa*
 ```
 
 ### 5. Run Pipeline
 
+Snakemake can be invoked from **any working directory** using `--snakefile`:
+
 ```bash
+PIPELINE=/data/khanlab3/gb_omics/Erica/software/twist_panel
+
 # Dry run (see what will be executed)
-snakemake -n
+snakemake --snakefile $PIPELINE/Snakefile -n
 
 # Run with 8 cores
-snakemake -j 8
+snakemake --snakefile $PIPELINE/Snakefile --use-envmodules -j 8
 
 # Run with all available cores
-snakemake -j all
+snakemake --snakefile $PIPELINE/Snakefile --use-envmodules -j all
 
 # Run specific rule (e.g., just QC)
-snakemake fastqc_raw -j 8
+snakemake --snakefile $PIPELINE/Snakefile --use-envmodules fastqc_raw -j 8
 
-# Run with conda environment creation
-snakemake -j 8 --use-envmodules
-
-# Run with conda and specific profile (e.g., slurm)
-snakemake -j 100 --use-envmodules --profile slurm
+# Run with a SLURM profile
+snakemake --snakefile $PIPELINE/Snakefile --use-envmodules -j 100 --profile slurm
 ```
 
 ### 6. View Results
@@ -248,14 +234,16 @@ Update `umi_pattern` in `config.yaml` if needed.
 ### 2. Alignment Issues
 
 Ensure:
-- Reference genome is in FASTA format
-- BWA index files exist (created by `bwa index`)
-- File paths in config.yaml are correct
+- `reference_genome` points to the shared HPC FASTA path
+- BWA index sidecar files exist at the same prefix
+- `raw_data_dir` points to the directory containing your fastq files
 
 ```bash
-# Check reference
-ls reference/
-# Should show: hg38.fa, hg38.fa.amb, hg38.fa.ann, hg38.fa.bwt, etc.
+# Check reference and index sidecars
+ls -lh /fdb/bwa/indexes/hg38.fa*
+
+# Check raw data
+ls -lh /path/to/raw/fastqs/
 ```
 
 ### 3. Memory Issues
@@ -299,7 +287,7 @@ Update module versions in `config/config.yaml` under `modules` if needed.
 ## Support
 
 For issues or questions, check:
-1. `logs/` directory for detailed error messages
+1. `<results_dir>/logs/` directory for detailed error messages
 2. The tool-specific documentation
 3. The `summary_report.txt` for pipeline statistics
 
