@@ -26,24 +26,20 @@ logs_dir:     "logs"
 # ---------------------------------------------------------------------------
 # Reference genome  (must be BWA-indexed)
 # ---------------------------------------------------------------------------
-reference_genome: "reference/hg38.fa"
+reference_genome: "/fdb/bwa/indexes/hg38.fa"
 
 # ---------------------------------------------------------------------------
-# Tool JARs
-# Tool versions recommended by Twist tech note DOC-001337:
-#   picard  2.27.1
-#   fgbio   1.5.1   ← specifically required; newer versions change MergeBamAlignment
-#   bwa     0.7.17
-#   samtools 1.15.1
+# HPC module loading
+# Set module names (and versions) available on your cluster.
+# These values are consumed by the Snakefile envmodules directives.
 # ---------------------------------------------------------------------------
-picard_jar: "/path/to/picard.jar"
-fgbio_jar:  "/path/to/fgbio.jar"
-java_bin:   "java"
-
-# If using conda environments the JARs will be resolved automatically.
-# Override picard_jar / fgbio_jar with the conda-installed paths, e.g.:
-#   picard_jar: "$(which picard)"  # only if conda env provides a wrapper
-# Or leave as /path/to/... and set them explicitly.
+modules:
+  qc: ["fastqc/0.11.9", "multiqc/1.12"]
+  preprocessing: ["python/3.9"]
+  alignment: ["bwa/0.7.17", "samtools/1.15.1"]
+  picard: ["picard/2.27.1", "java/11"]
+  fgbio: ["fgbio/1.5.1", "java/11"]
+  picard_alignment: ["picard/2.27.1", "java/11", "bwa/0.7.17", "samtools/1.15.1"]
 
 # ---------------------------------------------------------------------------
 # Computational resources

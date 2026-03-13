@@ -1,9 +1,0 @@
-# fgbio 1.5.1 is specifically required by the Twist tech note (DOC-001337).
-# Newer fgbio versions change behaviour in MergeBamAlignment and are not recommended.
-name: twist_fgbio
-channels:
-  - bioconda
-  - conda-forge
-  - defaults
-dependencies:
-  - fgbio=1.5.1

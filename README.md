@@ -23,7 +23,7 @@ cd /data/khanlab3/gb_omics/Erica/software/twist_panel
 
 # (Optional) Create conda environment for snakemake
 conda create -n snakemake snakemake -c conda-forge -c bioconda
-conda activate snakemake
+module load snakemake
 ```
 
 ### 2. Prepare Input Data
@@ -103,10 +103,10 @@ snakemake -j all
 snakemake fastqc_raw -j 8
 
 # Run with conda environment creation
-snakemake -j 8 --use-conda
+snakemake -j 8 --use-envmodules
 
 # Run with conda and specific profile (e.g., slurm)
-snakemake -j 100 --use-conda --profile slurm
+snakemake -j 100 --use-envmodules --profile slurm
 ```
 
 ### 6. View Results
@@ -270,11 +270,11 @@ Or limit threads:
 snakemake -j 4  # Use fewer parallel jobs
 ```
 
-### 4. Conda Issues
+### 4. Module Loading Issues
 
-Force environment update:
+Run with explicit module mode:
 ```bash
-snakemake -j 8 --use-conda --conda-frontend mamba  # Faster
+snakemake -j 8 --use-envmodules
 ```
 
 ## Tool Versions
@@ -288,7 +288,7 @@ The pipeline uses:
 - **SAMtools** 1.15
 - **umi_tools** 1.1.2
 
-Update in `envs/*.yaml` files if needed.
+Update module versions in `config/config.yaml` under `modules` if needed.
 
 ## References
 

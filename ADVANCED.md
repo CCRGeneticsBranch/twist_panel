@@ -103,8 +103,9 @@ rule align_to_reference:
         bam = f"{RESULTS}/04_aligned/{{sample}}.bam",
         bai = f"{RESULTS}/04_aligned/{{sample}}.bam.bai"
     threads: THREADS
-    conda:
-        "envs/bowtie.yaml"
+    envmodules:
+      "bowtie2/2.4.5"
+      "samtools/1.15"
     shell:
         """
         bowtie2 -p {threads} -x {REFERENCE_INDEX} \
@@ -112,17 +113,6 @@ rule align_to_reference:
         samtools sort -@ {threads} -o {output.bam} - && \
         samtools index {output.bam}
         """
-```
-
-Then create `envs/bowtie.yaml`:
-```yaml
-name: bowtie_align
-channels:
-  - bioconda
-  - conda-forge
-dependencies:
-  - bowtie2=2.4.5
-  - samtools=1.15
 ```
 
 ## Custom Deduplication Strategies
@@ -197,10 +187,10 @@ sample_groups:
 
 ```bash
 # Use job submission systems
-snakemake -j 1000 --use-conda --cluster "qsub -l nodes=1:ppn=8 -l walltime=24:00:00"
+snakemake -j 1000 --use-envmodules --cluster "qsub -l nodes=1:ppn=8 -l walltime=24:00:00"
 
 # Or with SLURM
-snakemake -j 1000 --use-conda --cluster "sbatch -c {threads} --mem=32GB"
+snakemake -j 1000 --use-envmodules --cluster "sbatch -c {threads} --mem=32GB"
 ```
 
 ### Parallel Rule Execution
@@ -211,12 +201,12 @@ threads: 4
 max_jobs: 8  # Run up to 8 samples in parallel
 ```
 
-### Use Mamba for Faster Solver
+### Use Native Module Stacks
 
 ```bash
-conda install -c conda-forge mamba
-# Then use in snakemake:
-snakemake -j 8 --use-conda --conda-frontend mamba
+# Ask your HPC admins for a curated module set for this workflow
+module avail fastqc multiqc bwa samtools picard fgbio
+snakemake -j 8 --use-envmodules
 ```
 
 ## Quality Control Enhancements
@@ -233,8 +223,8 @@ rule coverage_analysis:
         bai = f"{RESULTS}/05_dedup/{{sample}}.dedup.bam.bai"
     output:
         coverage = f"{RESULTS}/06_qc/{{sample}}_coverage.txt"
-    conda:
-        "envs/qc.yaml"
+    envmodules:
+      "samtools/1.15"
     shell:
         """
         samtools depth {input.bam} > {output.coverage}
@@ -253,8 +243,8 @@ rule target_coverage:
         regions = "config/targets.bed"
     output:
         coverage = f"{RESULTS}/06_qc/{{sample}}_target_coverage.txt"
-    conda:
-        "envs/qc.yaml"
+    envmodules:
+      "bedtools/2.31"
     shell:
         """
         bedtools coverage -a {input.regions} -b {input.bam} > {output.coverage}
@@ -273,24 +263,14 @@ rule variant_calling:
         ref = REFERENCE
     output:
         vcf = f"{RESULTS}/07_variants/{{sample}}.vcf.gz"
-    conda:
-        "envs/variant_calling.yaml"
+    envmodules:
+      "bcftools/1.15"
+      "samtools/1.15"
     shell:
         """
         samtools mpileup -u -f {input.ref} {input.bam} | \
         bcftools call -v -o {output.vcf} -
         """
-```
-
-Create `envs/variant_calling.yaml`:
-```yaml
-name: variant_calling
-channels:
-  - bioconda
-  - conda-forge
-dependencies:
-  - bcftools=1.15
-  - samtools=1.15
 ```
 
 ## Checkpointing (Resume Failed Runs)
@@ -299,13 +279,13 @@ Snakemake automatically handles this, but you can control behavior:
 
 ```bash
 # Resume interrupted run
-snakemake -j 8 --use-conda --rerun-incomplete
+snakemake -j 8 --use-envmodules --rerun-incomplete
 
 # Force rerun of specific rule
-snakemake -j 8 --use-conda --forcerun align_to_reference
+snakemake -j 8 --use-envmodules --forcerun align_to_reference
 
 # Continue from specific sample
-snakemake -j 8 --use-conda --until extract_umi_from_header
+snakemake -j 8 --use-envmodules --until extract_umi_from_header
 ```
 
 ## Debugging Failed Rules
@@ -314,10 +294,10 @@ snakemake -j 8 --use-conda --until extract_umi_from_header
 
 ```bash
 # Show all commands
-snakemake -j 1 --use-conda -rp
+snakemake -j 1 --use-envmodules -rp
 
 # Show output from failed commands
-snakemake -j 1 --use-conda --keep-temp --keep-remote
+snakemake -j 1 --use-envmodules --keep-temp --keep-remote
 
 # Print DAG visualizations
 snakemake -j 1 --dag | dot -Tpng > dag.png

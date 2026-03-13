@@ -54,7 +54,7 @@ mkdir -p data/raw reference metadata
 cp /path/to/*.fastq.gz data/raw/
 
 # Activate environment
-conda activate snakemake
+module load snakemake
 ```
 
 ### Download Reference (hg38)
@@ -95,10 +95,10 @@ threads: 8
 snakemake -n -j 1
 
 # Run the pipeline
-snakemake -j 8 --use-conda
+snakemake -j 8 --use-envmodules
 
 # Run specific sample
-snakemake extract_umi_from_header -j 8 --use-conda --config samples="metadata/sample1_only.csv"
+snakemake extract_umi_from_header -j 8 --use-envmodules --config samples="metadata/sample1_only.csv"
 ```
 
 ## Output Files by Step
@@ -145,7 +145,7 @@ samtools flagstat results/04_aligned/sample1.bam
 ## Troubleshooting Quick Fixes
 
 ### Problem: "Module conda not found"
-**Fix**: `conda activate snakemake`
+**Fix**: `module load snakemake`
 
 ### Problem: "UMI extraction failed"
 **Fix**: Check header format in first fastq line:
@@ -221,16 +221,16 @@ On 8-core system with 32GB RAM:
 snakemake --dag | dot -Tpng > dag.png
 
 # Run with progress bar
-snakemake -j 8 --use-conda --progress
+snakemake -j 8 --use-envmodules --progress
 
 # Rerun failed jobs only
-snakemake -j 8 --use-conda --rerun-incomplete
+snakemake -j 8 --use-envmodules --rerun-incomplete
 
 # Use fewer cores for specific rule
-snakemake -j 8 --use-conda -p --config threads=4
+snakemake -j 8 --use-envmodules -p --config threads=4
 
 # Generate HTML report
-snakemake -j 8 --use-conda --report results/workflow_report.html
+snakemake -j 8 --use-envmodules --report results/workflow_report.html
 ```
 
 ## Getting Results Ready for Analysis

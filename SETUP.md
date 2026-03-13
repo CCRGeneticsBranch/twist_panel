@@ -26,7 +26,7 @@ cd twist_panel
 conda create -n snakemake snakemake=7.25 -c conda-forge -c bioconda
 
 # Activate the environment
-conda activate snakemake
+module load snakemake
 
 # Verify installation
 snakemake --version
@@ -71,7 +71,7 @@ wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz
 gunzip hg38.fa.gz
 
 # Create BWA index (this takes ~2-3 hours for hg38)
-conda activate snakemake
+module load snakemake
 bwa index hg38.fa
 
 # Verify index creation
@@ -168,7 +168,7 @@ If your UMI format differs, update `umi_pattern` in `config/config.yaml`.
 
 ```bash
 # Activate snakemake environment
-conda activate snakemake
+module load snakemake
 
 # Run a dry-run to check for errors
 snakemake -n -j 1
@@ -188,19 +188,19 @@ snakemake -n -j 1
 
 ```bash
 # Ensure snakemake environment is active
-conda activate snakemake
+module load snakemake
 
 # Run with 8 cores (adjust based on your system)
-snakemake -j 8 --use-conda
+snakemake -j 8 --use-envmodules
 
 # Run with all available cores
-snakemake -j all --use-conda
+snakemake -j all --use-envmodules
 
 # Run specific sample only
-snakemake -j 8 --use-conda --config samples=metadata/sample1_only.csv
+snakemake -j 8 --use-envmodules --config samples=metadata/sample1_only.csv
 
 # Run with verbose output
-snakemake -j 8 --use-conda -rp
+snakemake -j 8 --use-envmodules -rp
 ```
 
 ## Optional: Set Up Slurm/HPC Compatibility
@@ -221,12 +221,12 @@ default-resources:
 
 Then run with:
 ```bash
-snakemake -j 100 --use-conda --profile config/slurm_profile.yaml
+snakemake -j 100 --use-envmodules --profile config/slurm_profile.yaml
 ```
 
 ## Troubleshooting
 
-### Issue: "conda: command not found"
+### Issue: "module: command not found"
 
 **Solution**: Activate conda or ensure it's in your PATH
 ```bash
@@ -266,7 +266,7 @@ memory_gb: 32
 
 Or run with fewer parallel jobs:
 ```bash
-snakemake -j 4 --use-conda
+snakemake -j 4 --use-envmodules
 ```
 
 ### Issue: UMI extraction fails
@@ -290,7 +290,7 @@ EOF
 
 ```bash
 # Check current status
-snakemake -j 8 --use-conda --list-changes
+snakemake -j 8 --use-envmodules --list-changes
 
 # View DAG (dependency graph)
 snakemake --dag | dot -Tpng > dag.png
@@ -358,12 +358,12 @@ If you encounter issues:
 
 2. Run with verbose output:
    ```bash
-   snakemake -j 1 --use-conda -rp 2>&1 | head -100
+   snakemake -j 1 --use-envmodules -rp 2>&1 | head -100
    ```
 
 3. Verify tool installations:
    ```bash
-   conda activate snakemake
+   module load snakemake
    fastqc --version
    bwa
    samtools --version

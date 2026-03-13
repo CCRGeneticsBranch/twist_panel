@@ -45,6 +45,8 @@ import pandas as pd
 from pathlib import Path
 
 configfile: "config/config.yaml"
+# This workflow is configured for module-based software provisioning.
+# Run Snakemake with: --use-envmodules
 
 SAMPLES = config.get("samples", {})
 if isinstance(SAMPLES, str):
@@ -67,9 +69,17 @@ UMI_PATTERN     = config.get("umi_pattern", r"(?P<umi_1>[ACGTN]+)\+(?P<umi_2>[AC
 # For header-extracted UMIs prepended inline (no skip): 5M+T.
 READ_STRUCTURE  = config.get("umi_read_structure", "5M+T")
 
-PICARD  = config.get("picard_jar",  "/path/to/picard.jar")
-FGBIO   = config.get("fgbio_jar",   "/path/to/fgbio.jar")
-JAVA    = config.get("java_bin",    "java")
+# Pure module-based execution: set these in config.yaml to match your cluster.
+MODULES = config.get("modules", {})
+MOD_QC = MODULES.get("qc", ["fastqc", "multiqc"])
+MOD_PREPROCESSING = MODULES.get("preprocessing", ["python"])
+MOD_ALIGNMENT = MODULES.get("alignment", ["bwa", "samtools"])
+MOD_PICARD = MODULES.get("picard", ["picard", "java"])
+MOD_FGBIO = MODULES.get("fgbio", ["fgbio", "java"])
+MOD_PICARD_ALIGN = MODULES.get(
+    "picard_alignment",
+    ["picard", "java", "bwa", "samtools"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -121,8 +131,8 @@ rule fastqc_raw:
         outdir = f"{RESULTS}/01_qc/fastqc"
     log:
         f"{LOGS}/01_qc/fastqc_{{sample}}_{{read}}.log"
-    conda:
-        "envs/qc.yaml"
+    envmodules:
+        MOD_QC
     shell:
         "fastqc -o {params.outdir} -f fastq {input} 2>&1 | tee {log}"
 
@@ -139,8 +149,8 @@ rule multiqc:
         outdir = f"{RESULTS}/01_qc"
     log:
         f"{LOGS}/01_qc/multiqc.log"
-    conda:
-        "envs/qc.yaml"
+    envmodules:
+        MOD_QC
     shell:
         "multiqc {params.indir} -o {params.outdir} -f 2>&1 | tee {log}"
 
@@ -171,8 +181,8 @@ rule extract_umi_from_header:
         umi_pattern = UMI_PATTERN
     log:
         f"{LOGS}/02_umi_extracted/{{sample}}.log"
-    conda:
-        "envs/preprocessing.yaml"
+    envmodules:
+        MOD_PREPROCESSING
     shell:
         """
         python {params.script} \
@@ -205,19 +215,17 @@ rule fastq_to_sam:
     output:
         ubam = temp(f"{RESULTS}/03_ubam/{{sample}}.unmapped.bam")
     params:
-        picard  = PICARD,
-        java    = JAVA,
         mem     = MEMORY,
         sample  = lambda wc: wc.sample,
         library = lambda wc: config.get("library_name", wc.sample),
         platform = "Illumina"
     log:
         f"{LOGS}/03_ubam/{{sample}}.log"
-    conda:
-        "envs/picard.yaml"
+    envmodules:
+        MOD_PICARD
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.picard} FastqToSam \\
+        picard --java-options "-Xmx{params.mem}g" FastqToSam \\
             O={output.ubam} \\
             F1={input.r1} \\
             F2={input.r2} \\
@@ -258,17 +266,14 @@ rule extract_umis_from_bam:
     output:
         ubam_umi = f"{RESULTS}/04_ubam_umi_tagged/{{sample}}.umi_tagged.bam"
     params:
-        fgbio = FGBIO,
-        java  = JAVA,
-        mem   = MEMORY,
         rs    = READ_STRUCTURE
     log:
         f"{LOGS}/04_ubam_umi_tagged/{{sample}}.log"
-    conda:
-        "envs/fgbio.yaml"
+    envmodules:
+        MOD_FGBIO
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.fgbio} ExtractUmisFromBam \\
+        fgbio ExtractUmisFromBam \\
             --input={input.ubam} \\
             --output={output.ubam_umi} \\
             --read-structure={params.rs} {params.rs} \\
@@ -300,17 +305,15 @@ rule sam_to_fastq_and_align:
     output:
         bam = temp(f"{RESULTS}/05_aligned/{{sample}}.aligned.bam")
     params:
-        picard = PICARD,
-        java   = JAVA,
         mem    = MEMORY
     threads: THREADS
     log:
         f"{LOGS}/05_aligned/{{sample}}.log"
-    conda:
-        "envs/alignment.yaml"
+    envmodules:
+        MOD_PICARD_ALIGN
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.picard} SamToFastq \\
+        picard --java-options "-Xmx{params.mem}g" SamToFastq \\
             I={input.ubam_umi} \\
             F=/dev/stdout \\
             INTERLEAVE=true \\
@@ -353,16 +356,14 @@ rule merge_bam_alignment:
         bam = f"{RESULTS}/06_merged/{{sample}}.merged.bam",
         bai = f"{RESULTS}/06_merged/{{sample}}.merged.bai"
     params:
-        picard = PICARD,
-        java   = JAVA,
         mem    = MEMORY
     log:
         f"{LOGS}/06_merged/{{sample}}.log"
-    conda:
-        "envs/picard.yaml"
+    envmodules:
+        MOD_PICARD
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.picard} MergeBamAlignment \\
+        picard --java-options "-Xmx{params.mem}g" MergeBamAlignment \\
             UNMAPPED={input.ubam} \\
             ALIGNED={input.aligned} \\
             O={output.bam} \\
@@ -405,19 +406,17 @@ rule collect_hs_metrics:
     output:
         metrics = f"{RESULTS}/06_merged/{{sample}}.hs_metrics.txt"
     params:
-        picard            = PICARD,
-        java              = JAVA,
         mem               = MEMORY,
         bait_intervals    = config.get("bait_intervals", ""),
         target_intervals  = config.get("target_intervals", ""),
         probe_file        = config.get("probe_file", "")
     log:
         f"{LOGS}/06_merged/{{sample}}.hs_metrics.log"
-    conda:
-        "envs/picard.yaml"
+    envmodules:
+        MOD_PICARD
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.picard} CollectHsMetrics \\
+        picard --java-options "-Xmx{params.mem}g" CollectHsMetrics \\
             -I {input.bam} \\
             -R {input.ref} \\
             -O {output.metrics} \\
@@ -456,18 +455,15 @@ rule group_reads_by_umi:
         bam  = f"{RESULTS}/07_grouped/{{sample}}.grouped.bam",
         hist = f"{RESULTS}/07_grouped/{{sample}}.family_size_histogram.txt"
     params:
-        fgbio     = FGBIO,
-        java      = JAVA,
-        mem       = MEMORY,
         min_mapq  = config.get("min_map_quality", 10),
         edits     = config.get("umi_edit_distance", 1)
     log:
         f"{LOGS}/07_grouped/{{sample}}.log"
-    conda:
-        "envs/fgbio.yaml"
+    envmodules:
+        MOD_FGBIO
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.fgbio} GroupReadsByUmi \\
+        fgbio GroupReadsByUmi \\
             --strategy=paired \\
             --input={input.bam} \\
             --output={output.bam} \\
@@ -509,18 +505,15 @@ rule call_duplex_consensus:
     output:
         ubam = f"{RESULTS}/08_consensus_ubam/{{sample}}.consensus.unmapped.bam"
     params:
-        fgbio             = FGBIO,
-        java              = JAVA,
-        mem               = MEMORY,
         error_rate_pre    = config.get("error_rate_pre_umi", 45),
         min_reads         = config.get("min_reads", "2 1 1")
     log:
         f"{LOGS}/08_consensus_ubam/{{sample}}.log"
-    conda:
-        "envs/fgbio.yaml"
+    envmodules:
+        MOD_FGBIO
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.fgbio} CallDuplexConsensusReads \\
+        fgbio CallDuplexConsensusReads \\
             --input={input.bam} \\
             --output={output.ubam} \\
             --error-rate-pre-umi={params.error_rate_pre} \\
@@ -550,17 +543,15 @@ rule realign_consensus:
     output:
         bam  = temp(f"{RESULTS}/09_consensus_aligned/{{sample}}.consensus.aligned.bam")
     params:
-        picard = PICARD,
-        java   = JAVA,
         mem    = MEMORY
     threads: THREADS
     log:
         f"{LOGS}/09_consensus_aligned/{{sample}}.log"
-    conda:
-        "envs/alignment.yaml"
+    envmodules:
+        MOD_PICARD_ALIGN
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.picard} SamToFastq \\
+        picard --java-options "-Xmx{params.mem}g" SamToFastq \\
             I={input.ubam} \\
             F=/dev/stdout \\
             INTERLEAVE=true \\
@@ -624,16 +615,14 @@ rule merge_consensus_bam:
         bam = f"{RESULTS}/10_consensus_final/{{sample}}.consensus.final.bam",
         bai = f"{RESULTS}/10_consensus_final/{{sample}}.consensus.final.bai"
     params:
-        picard = PICARD,
-        java   = JAVA,
         mem    = MEMORY
     log:
         f"{LOGS}/10_consensus_final/{{sample}}.log"
-    conda:
-        "envs/picard.yaml"
+    envmodules:
+        MOD_PICARD
     shell:
         """
-        {params.java} -Xmx{params.mem}g -jar {params.picard} MergeBamAlignment \\
+        picard --java-options "-Xmx{params.mem}g" MergeBamAlignment \\
             VALIDATION_STRINGENCY=SILENT \\
             UNMAPPED={input.ubam} \\
             ALIGNED={input.aligned} \\
@@ -691,7 +680,7 @@ rule generate_summary_report:
         report = f"{RESULTS}/summary_report.txt"
     log:
         f"{LOGS}/summary.log"
-    conda:
-        "envs/preprocessing.yaml"
+    envmodules:
+        MOD_PREPROCESSING
     script:
         "scripts/generate_summary.py"
