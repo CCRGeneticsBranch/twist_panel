@@ -15,15 +15,24 @@ This pipeline processes raw sequencing reads through the following steps:
 
 ## Quick Start
 
-### 1. Point config to your data and output directories
+### 1. Initialize a run directory
 
-The pipeline code, raw data, and output each live in separate directories.
-Set absolute paths in `config/config.yaml`:
+Keep pipeline code in one fixed location and create a separate run folder for each analysis:
 
-```yaml
-raw_data_dir: "/path/to/raw/fastqs"   # your input fastq files
-results_dir:  "/path/to/output"        # pipeline outputs (logs go in results_dir/logs/)
+```bash
+PIPELINE=/data/khanlab3/gb_omics/projects/khan/ccrgb_106/scripts/twist_panel
+RUN_DIR=/path/to/my_run
+
+$PIPELINE/init_run.sh "$RUN_DIR"
 ```
+
+This creates editable run-local files:
+- `config.yaml`
+- `samples.tsv`
+
+### 2. Edit run-local config and samples
+
+Update `config.yaml` with absolute paths for your environment and edit `samples.tsv` with your sample sheet.
 
 ### 2. Prepare Input Data
 
@@ -59,28 +68,19 @@ Optional check:
 ls -lh /fdb/bwa/indexes/hg38.fa*
 ```
 
-### 5. Run Pipeline
+### 5. Launch pipeline
 
-The pipeline is designed to run via the SLURM scheduler. Edit
-`config/slurm_profile.yaml` to set your account and partition, then:
+Use the run command to execute Snakemake with the run-local `config.yaml`:
 
 ```bash
-PIPELINE=/data/khanlab3/gb_omics/Erica/software/twist_panel
+# Dry run
+$PIPELINE/run_pipeline.sh "$RUN_DIR" -n
 
-# Dry run — check what will execute without submitting any jobs
-snakemake --snakefile $PIPELINE/Snakefile -n
+# Typical cluster run
+$PIPELINE/run_pipeline.sh "$RUN_DIR" --profile "$PIPELINE/config/slurm_profile.yaml"
 
-# Submit all jobs to SLURM (standard usage)
-snakemake --snakefile $PIPELINE/Snakefile \
-    --profile $PIPELINE/config/slurm_profile.yaml
-
-# Resume after failure (re-submits only incomplete jobs)
-snakemake --snakefile $PIPELINE/Snakefile \
-    --profile $PIPELINE/config/slurm_profile.yaml \
-    --rerun-incomplete
-
-# Run a single rule locally for testing (bypasses SLURM)
-snakemake --snakefile $PIPELINE/Snakefile --use-envmodules fastqc_raw -j 1
+# Resume incomplete jobs
+$PIPELINE/run_pipeline.sh "$RUN_DIR" --profile "$PIPELINE/config/slurm_profile.yaml" --rerun-incomplete
 ```
 
 ### SLURM profile
@@ -200,6 +200,20 @@ deduplication:
 ## Key Differences from Standard Twist Protocol
 
 The standard Twist protocol assumes UMIs are in separate read files (e.g., R1 contains UMI, R2 contains sample sequence).
+
+Standard Twist library prep places UMI bases inline at the start of each read
+(read structure 5M2S+T: 5 UMI bases, 2 skip bases, then template).
+This data has UMIs already extracted into the read name header field:
+  @VH01088:45:AAJ2V5CM5:1:1101:60230:1000:GTCGT+CAGGA 1:N:0:...
+                                            ^^^^^  ^^^^^
+                                            UMI1   UMI2
+
+The custom pre-processing step (rule extract_umi_from_header) reads each
+UMI pair from the header and prepends UMI1 to R1, UMI2 to R2, producing
+fastqs with inline UMI prefixes compatible with the standard Twist pipeline.
+Read structure is set to 5M+T (no skip bases, since they are not present in
+the header-extracted UMIs). Update umi_read_structure in config.yaml if your
+data does carry skip bases.
 
 This pipeline is adapted for:
 - **UMIs in headers**: Extracts from the fastq header instead of separate files

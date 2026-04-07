@@ -3,17 +3,19 @@
 
 # ---------------------------------------------------------------------------
 # Samples
-# Samples must be provided via CSV (columns: sample,R1,R2).
+# 
+# Samples must be provided via TSV (columns: Sample, R1, R2).
 # R1/R2 values are filenames within raw_data_dir (not full paths).
-# The CSV path may be absolute or relative to the pipeline directory.
+# The TSV path may be absolute or relative to the run directory.
 # ---------------------------------------------------------------------------
-samples: "config/samples_template.csv"
+samples: "samples.tsv"
 
 # ---------------------------------------------------------------------------
 # Directories (use absolute paths)
 # ---------------------------------------------------------------------------
 raw_data_dir: "/path/to/raw/fastqs"   # input fastq file directory
 results_dir:  "/path/to/output"        # output directory
+logs_dir:     "/path/to/output/logs"   # log file directory
 
 # ---------------------------------------------------------------------------
 # Reference genome  (must be BWA-indexed)
@@ -22,14 +24,22 @@ reference_genome: "/fdb/bwa/indexes/hg38.fa"
 
 # ---------------------------------------------------------------------------
 # HPC module loading
+# Recommended tool versions:
+#  bwa        0.7.17
+#  samtools   1.15.1
+#  fgbio      1.5.1   (specifically required — newer versions change MergeBamAlignment)
+#  picard     2.27.1
+#  gatk       4.2.6.1
 # ---------------------------------------------------------------------------
 modules:
-  qc: ["fastqc/0.11.9", "multiqc/1.12"]
-  preprocessing: ["python/3.9"]
-  alignment: ["bwa/0.7.17", "samtools/1.15.1"]
-  picard: ["picard/2.27.1", "java/11"]
-  fgbio: ["fgbio/1.5.1", "java/11"]
-  picard_alignment: ["picard/2.27.1", "java/11", "bwa/0.7.17", "samtools/1.15.1"]
+  fastqc:   "fastqc/0.11.9"
+  multiqc:  "multiqc/1.12"
+  python:   "python/3.9"
+  bwa:      "bwa/0.7.17"
+  samtools: "samtools/1.15.1"
+  picard:   "picard/2.27.1"
+  java:     "java/11"
+  fgbio:    "fgbio/1.5.1"
 
 # ---------------------------------------------------------------------------
 # Computational resources
@@ -47,8 +57,8 @@ umi_pattern: "(?P<umi_1>[ACGTN]+)\\+(?P<umi_2>[ACGTN]+)"
 
 # ---------------------------------------------------------------------------
 # fgbio read structure for ExtractUmisFromBam.
-# Standard Twist inline libraries: "5M2S+T"  (5bp UMI + 2bp skip + template)
-# Header-extracted UMIs (no skip bases): "5M+T"
+# Standard Twist inline libraries (5bp UMI + 2bp skip + template): "5M2S+T"
+# Header-extracted UMIs prepended inline (no skip bases): "5M+T"
 # Adjust if your UMIs are a different length or if skip bases were preserved.
 # ---------------------------------------------------------------------------
 umi_read_structure: "5M+T"
@@ -56,8 +66,8 @@ umi_read_structure: "5M+T"
 # ---------------------------------------------------------------------------
 # fgbio GroupReadsByUmi parameters  (PDF step 7)
 # ---------------------------------------------------------------------------
-min_map_quality: 10    # --min-map-q (from PDF)
-umi_edit_distance: 1   # --edits     (from PDF)
+min_map_quality: 10
+umi_edit_distance: 1
 
 # ---------------------------------------------------------------------------
 # fgbio CallDuplexConsensusReads parameters  (PDF step 8)
@@ -65,14 +75,13 @@ umi_edit_distance: 1   # --edits     (from PDF)
 # Twist recommends 2 1 1: duplex consensus requires ≥2 reads total,
 # ≥1 from the top strand and ≥1 from the bottom strand.
 # ---------------------------------------------------------------------------
-error_rate_pre_umi: 45   # --error-rate-pre-umi (from PDF)
+error_rate_pre_umi: 45 
 min_reads: "2 1 1"
 
 # ---------------------------------------------------------------------------
-# Optional: CollectHsMetrics  (PDF step 6)
+# CollectHsMetrics  (PDF step 6)
 # Provide Picard interval_list files for your capture panel.
-# Leave blank to skip this step.
 # ---------------------------------------------------------------------------
 bait_intervals:   ""   # path to probe/bait interval_list
 target_intervals: ""   # path to target interval_list
-probe_file: ""       # path to probe BED file for per-target coverage (optional)
+probe_file: ""       # path to probe BED file for per-target coverage

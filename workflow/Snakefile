@@ -1,102 +1,49 @@
 """
 Twist Bioscience UMI Panel Preprocessing Pipeline
 Based on: DOC-001337 TechNote - Processing Sequencing Data Utilizing UMI (REV1)
-
-Recommended tool versions:
-  bwa        0.7.17
-  samtools   1.15.1
-  fgbio      1.5.1   (specifically required — newer versions change MergeBamAlignment)
-  picard     2.27.1
-  gatk       4.2.6.1
-
-Standard Twist pipeline
------------------------------------
-1.  Picard   FastqToSam           raw fastqs → uBAM
-2.  fgbio    ExtractUmisFromBam   inline UMIs (5M2S+T) → ZA / ZB / RX tags in uBAM
-3.  Picard   SamToFastq           uBAM → interleaved fastq (UMI bases stripped)
-4.  bwa mem -p                    interleaved fastq → coordinate-sorted aligned BAM
-5.  Picard   MergeBamAlignment    merge aligned + UMI-tagged uBAM
-6.  (opt)    CollectHsMetrics     pre-consensus coverage QC
-7.  fgbio    GroupReadsByUmi      cluster read pairs by position + UMI (paired strategy)
-8.  fgbio    CallDuplexConsensusReads  collapse families → duplex consensus uBAM
-9.  Picard   SamToFastq           consensus uBAM → interleaved fastq
-10. bwa mem -p                    realign consensus fastq
-11. Picard   MergeBamAlignment    merge consensus aligned + consensus uBAM (retain tags)
-
-Adaptation for data with UMIs already in the fastq header
------------------------------------------------------------
-Standard Twist library prep places UMI bases inline at the start of each read
-(read structure 5M2S+T: 5 UMI bases, 2 skip bases, then template).
-This data has UMIs already extracted into the read name header field:
-  @VH01088:45:AAJ2V5CM5:1:1101:60230:1000:GTCGT+CAGGA 1:N:0:...
-                                            ^^^^^  ^^^^^
-                                            UMI1   UMI2
-
-The custom pre-processing step (rule extract_umi_from_header) reads each
-UMI pair from the header and prepends UMI1 to R1, UMI2 to R2, producing
-fastqs with inline UMI prefixes compatible with the standard Twist pipeline.
-Read structure is set to 5M+T (no skip bases, since they are not present in
-the header-extracted UMIs). Update umi_read_structure in config.yaml if your
-data does carry skip bases.
 """
 
 import os
 import pandas as pd
 from pathlib import Path
 
-# Resolve configfile relative to this Snakefile so the pipeline can be invoked
-# with --snakefile from any working directory.
-configfile: os.path.join(workflow.basedir, "config", "config.yaml")
-# Run with: snakemake --snakefile /path/to/Snakefile --use-envmodules -j <N>
-# Set raw_data_dir, results_dir, and logs_dir to absolute paths in config.yaml.
+# This Snakefile expects runtime configuration to be provided via --configfile.
+# Run with: snakemake --snakefile /path/to/Snakefile --configfile /path/to/run/config.yaml
 
-samples_cfg = config.get("samples", "")
-if not isinstance(samples_cfg, str) or not samples_cfg.strip():
-    raise ValueError("config['samples'] must be a path to a CSV file with columns: sample,R1,R2")
+RAW_DATA  = config["raw_data_dir"]
+RESULTS   = config["results_dir"]
+LOGS      = config["logs_dir"]
+REFERENCE = config["reference_genome"]
 
-# Relative paths are resolved from the pipeline directory, not the CWD
-samples_path = samples_cfg if os.path.isabs(samples_cfg) else os.path.join(workflow.basedir, samples_cfg)
-if not samples_path.lower().endswith(".csv"):
-    raise ValueError(f"Sample metadata must be a CSV file. Got: {samples_cfg}")
+# Load samples
+samples_cfg = config["samples"]
 
-samples_df = pd.read_csv(samples_path)
-required_cols = {"sample", "R1", "R2"}
+# Resolve relative sample metadata paths from the run working directory.
+samples_path = samples_cfg if os.path.isabs(samples_cfg) else os.path.abspath(samples_cfg)
+if not samples_path.lower().endswith(".tsv"):
+    raise ValueError(f"Sample metadata must be a TSV file. Got: {samples_cfg}")
+
+samples_df = pd.read_csv(samples_path, sep="\t")
+required_cols = {"Sample", "R1", "R2"}
 missing_cols = required_cols - set(samples_df.columns)
 if missing_cols:
-    raise ValueError(f"Sample metadata CSV is missing required columns: {sorted(missing_cols)}")
+    raise ValueError(f"Sample metadata TSV is missing required columns: {sorted(missing_cols)}")
 
-if samples_df["sample"].duplicated().any():
-    raise ValueError("Sample metadata CSV contains duplicate sample names in 'sample' column")
+if samples_df["Sample"].duplicated().any():
+    raise ValueError("Sample metadata TSV contains duplicate sample names in 'Sample' column")
 
-SAMPLES = samples_df.set_index("sample")[["R1", "R2"]].to_dict("index")
-
+SAMPLES = samples_df.set_index("Sample")[["R1", "R2"]].to_dict("index")
 SAMPLE_NAMES = list(SAMPLES.keys()) if SAMPLES else []
 
-RAW_DATA  = config.get("raw_data_dir",  "data/raw")
-RESULTS   = config.get("results_dir",   "results")
-REFERENCE = config.get("reference_genome", "")
-
-THREADS = config.get("threads", 8)
-MEMORY  = config.get("memory_gb", 4)   # per-tool heap (matches PDF: -Xmx4g)
+THREADS = config["threads"]
+MEMORY  = config["memory_gb"]   # per-tool heap (matches PDF: -Xmx4g)
 
 # UMI parameters
-UMI_PATTERN     = config.get("umi_pattern", r"(?P<umi_1>[ACGTN]+)\+(?P<umi_2>[ACGTN]+)")
-# Read structure for fgbio ExtractUmisFromBam.
-# Standard Twist inline: 5M2S+T  (5bp UMI + 2bp skip + template).
-# For header-extracted UMIs prepended inline (no skip): 5M+T.
-READ_STRUCTURE  = config.get("umi_read_structure", "5M+T")
+UMI_PATTERN     = config["umi_pattern"]
+READ_STRUCTURE  = config["umi_read_structure"]
 
-# Pure module-based execution: set these in config.yaml to match your cluster.
-MODULES = config.get("modules", {})
-MOD_QC = MODULES.get("qc", ["fastqc", "multiqc"])
-MOD_PREPROCESSING = MODULES.get("preprocessing", ["python"])
-MOD_ALIGNMENT = MODULES.get("alignment", ["bwa", "samtools"])
-MOD_PICARD = MODULES.get("picard", ["picard", "java"])
-MOD_FGBIO = MODULES.get("fgbio", ["fgbio", "java"])
-MOD_PICARD_ALIGN = MODULES.get(
-    "picard_alignment",
-    ["picard", "java", "bwa", "samtools"],
-)
+# Per-tool module names/versions are looked up directly in each rule
+MODULES = config["modules"]
 
 
 # ---------------------------------------------------------------------------
@@ -105,103 +52,80 @@ MOD_PICARD_ALIGN = MODULES.get(
 
 rule all:
     input:
-        # FastQC / MultiQC on raw reads
-        expand(f"{RESULTS}/01_qc/fastqc/{{sample}}_R1_fastqc.html", sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/01_qc/fastqc/{{sample}}_R2_fastqc.html", sample=SAMPLE_NAMES),
-        f"{RESULTS}/01_qc/multiqc_report.html",
+        # FastQC on raw reads
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}_R1_fastqc.html", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}_R2_fastqc.html", sample=SAMPLE_NAMES),
 
         # Pre-processed fastqs (UMIs moved inline from header)
-        expand(f"{RESULTS}/02_umi_extracted/{{sample}}_R1.fastq.gz", sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/02_umi_extracted/{{sample}}_R2.fastq.gz", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/umi_extracted/{{sample}}_R1.fastq.gz", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/umi_extracted/{{sample}}_R2.fastq.gz", sample=SAMPLE_NAMES),
 
         # uBAM with UMI tags (ZA / ZB / RX)
-        expand(f"{RESULTS}/04_ubam_umi_tagged/{{sample}}.umi_tagged.bam", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/bam/{{sample}}.umi_tagged.bam", sample=SAMPLE_NAMES),
 
         # Primary aligned BAM (after first MergeBamAlignment)
-        expand(f"{RESULTS}/06_merged/{{sample}}.merged.bam", sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/06_merged/{{sample}}.merged.bai", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/bam/{{sample}}.merged.bam", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/bam/{{sample}}.merged.bai", sample=SAMPLE_NAMES),
 
         # Grouped-by-UMI BAM
-        expand(f"{RESULTS}/07_grouped/{{sample}}.grouped.bam", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/bam/{{sample}}.grouped.bam", sample=SAMPLE_NAMES),
 
         # Final consensus BAM (aligned + UMI tags retained)
-        expand(f"{RESULTS}/10_consensus_final/{{sample}}.consensus.final.bam",
+        expand(f"{RESULTS}/bam/{{sample}}.consensus.final.bam",
                sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/10_consensus_final/{{sample}}.consensus.final.bai",
+        expand(f"{RESULTS}/bam/{{sample}}.consensus.final.bai",
                sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/10_consensus_final/{{sample}}.consensus.hs_metrics.txt",
-               sample=SAMPLE_NAMES),
-
+        
+        # MultiQC and summary report
+        f"{RESULTS}/qc/multiqc_report.html",
         f"{RESULTS}/summary_report.txt"
 
 
 # ---------------------------------------------------------------------------
-# Step 1 – FastQC / MultiQC on raw reads
+# Step 1 – FastQC on raw fastq
 # ---------------------------------------------------------------------------
 
 rule fastqc_raw:
-    """Run FastQC on raw fastq files."""
     input:
         lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample][wc.read]}"
     output:
-        html = f"{RESULTS}/01_qc/fastqc/{{sample}}_{{read}}_fastqc.html",
-        zip  = f"{RESULTS}/01_qc/fastqc/{{sample}}_{{read}}_fastqc.zip"
+        html = f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.html",
+        zip = f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.zip"
     params:
-        outdir = f"{RESULTS}/01_qc/fastqc"
+        outdir = f"{RESULTS}/qc/fastqc"
     log:
-        f"{LOGS}/01_qc/fastqc_{{sample}}_{{read}}.log"
+        f"{LOGS}/qc/fastqc_{{sample}}_{{read}}.log"
     envmodules:
-        MOD_QC
+        MODULES["fastqc"]
     shell:
         "fastqc -o {params.outdir} -f fastq {input} 2>&1 | tee {log}"
-
-
-rule multiqc:
-    """Aggregate FastQC reports."""
-    input:
-        expand(f"{RESULTS}/01_qc/fastqc/{{sample}}_{{read}}_fastqc.zip",
-               sample=SAMPLE_NAMES, read=["R1", "R2"])
-    output:
-        f"{RESULTS}/01_qc/multiqc_report.html"
-    params:
-        indir  = f"{RESULTS}/01_qc/fastqc",
-        outdir = f"{RESULTS}/01_qc"
-    log:
-        f"{LOGS}/01_qc/multiqc.log"
-    envmodules:
-        MOD_QC
-    shell:
-        "multiqc {params.indir} -o {params.outdir} -f 2>&1 | tee {log}"
-
 
 # ---------------------------------------------------------------------------
 # Step 2 – Custom: move UMIs from header into reads inline
 #
+# Parse UMI1+UMI2 from the read name and prepend to its read:
+#       UMI1 → first 5 bases of R1  (read structure 5M+T)
+#       UMI2 → first 5 bases of R2  (read structure 5M+T)
 # Since UMIs are in the read name (not at the start of the read sequence)
 # we prepend UMI1 → R1 and UMI2 → R2 so the standard fgbio ExtractUmisFromBam
 # read-structure can strip them into ZA/ZB/RX tags downstream.
 # ---------------------------------------------------------------------------
 
 rule extract_umi_from_header:
-    """
-    Parse UMI1+UMI2 from the read-name and prepend each to its read:
-      UMI1 → first 5 bases of R1  (read structure 5M+T)
-      UMI2 → first 5 bases of R2  (read structure 5M+T)
-    """
     input:
         r1 = lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample]['R1']}",
         r2 = lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample]['R2']}"
     output:
-        r1    = f"{RESULTS}/02_umi_extracted/{{sample}}_R1.fastq.gz",
-        r2    = f"{RESULTS}/02_umi_extracted/{{sample}}_R2.fastq.gz",
-        stats = f"{RESULTS}/02_umi_extracted/{{sample}}_umi_stats.txt"
+        r1 = f"{RESULTS}/umi_extracted/{{sample}}_R1.fastq.gz",
+        r2 = f"{RESULTS}/umi_extracted/{{sample}}_R2.fastq.gz",
+        stats = f"{RESULTS}/umi_extracted/{{sample}}_umi_stats.txt"
     params:
-        script      = os.path.join(workflow.basedir, "scripts", "extract_umi.py"),
+        script = os.path.join(workflow.basedir, "scripts", "extract_umi.py"),
         umi_pattern = UMI_PATTERN
     log:
-        f"{LOGS}/02_umi_extracted/{{sample}}.log"
+        f"{LOGS}/umi_extracted/{{sample}}.log"
     envmodules:
-        MOD_PREPROCESSING
+        MODULES["python"]
     shell:
         """
         python {params.script} \
@@ -213,33 +137,31 @@ rule extract_umi_from_header:
             2>&1 | tee {log}
         """
 
-
 # ---------------------------------------------------------------------------
 # Step 3 – Picard FastqToSam  (PDF step 1)
-# Convert paired fastqs to an unmapped BAM with sample/library metadata.
+# Convert paired fastqs to an unmapped BAM with sample metadata
 # ---------------------------------------------------------------------------
 
 rule fastq_to_sam:
     """
-    Picard FastqToSam: paired fastqs → unmapped BAM.
-
     PDF command:
       java -Xmx4g -jar picard.jar FastqToSam \\
         O={unaligned_bam} F1={r1} F2={r2} \\
         SM={sample} LB=Library1 PU=Unit1 PL=Illumina
     """
     input:
-        r1 = f"{RESULTS}/02_umi_extracted/{{sample}}_R1.fastq.gz",
-        r2 = f"{RESULTS}/02_umi_extracted/{{sample}}_R2.fastq.gz"
+        r1 = f"{RESULTS}/umi_extracted/{{sample}}_R1.fastq.gz",
+        r2 = f"{RESULTS}/umi_extracted/{{sample}}_R2.fastq.gz"
     output:
-        ubam = temp(f"{RESULTS}/03_ubam/{{sample}}.unmapped.bam")
+        ubam = temp(f"{RESULTS}/bam/{{sample}}.unmapped.bam")
     params:
-        mem     = MEMORY,
-        sample  = lambda wc: wc.sample
+        mem = MEMORY,
+        sample = lambda wc: wc.sample
     log:
-        f"{LOGS}/03_ubam/{{sample}}.log"
+        f"{LOGS}/bam/{{sample}}.fastq_to_sam.log"
     envmodules:
-        MOD_PICARD
+        MODULES["picard"],
+        MODULES["java"]
     shell:
         """
         picard --java-options "-Xmx{params.mem}g" FastqToSam \\
@@ -253,19 +175,18 @@ rule fastq_to_sam:
             2>&1 | tee {log}
         """
 
-
 # ---------------------------------------------------------------------------
 # Step 4 – fgbio ExtractUmisFromBam  (PDF step 2)
 # Strips the inline UMI prefix from each read and stores it in tags.
 #   ZA = 5' UMI (from R1)
 #   ZB = 3' UMI (from R2)
 #   RX = combined "UMI1-UMI2"
+# Adaptation: read structure is 5M+T (no skip) because skip bases are not
+# present in UMIs extracted from the read-name header.
 # ---------------------------------------------------------------------------
 
 rule extract_umis_from_bam:
     """
-    fgbio ExtractUmisFromBam: inline UMI bases → ZA / ZB / RX BAM tags.
-
     PDF command:
       java -Xmx4g -jar fgbio.jar ExtractUmisFromBam \\
         --input={unaligned_bam} \\
@@ -273,21 +194,18 @@ rule extract_umis_from_bam:
         --read-structure=5M2S+T 5M2S+T \\
         --molecular-index-tags=ZA ZB \\
         --single-tag=RX
-
-    Adaptation: read structure is 5M+T (no skip) because skip bases are not
-    present in UMIs extracted from the read-name header.  Adjust
-    umi_read_structure in config.yaml if your fastqs include skip bases.
     """
     input:
-        ubam = f"{RESULTS}/03_ubam/{{sample}}.unmapped.bam"
+        ubam = f"{RESULTS}/bam/{{sample}}.unmapped.bam"
     output:
-        ubam_umi = f"{RESULTS}/04_ubam_umi_tagged/{{sample}}.umi_tagged.bam"
+        ubam_umi = f"{RESULTS}/bam/{{sample}}.umi_tagged.bam"
     params:
-        rs    = READ_STRUCTURE
+        rs = READ_STRUCTURE
     log:
-        f"{LOGS}/04_ubam_umi_tagged/{{sample}}.log"
+        f"{LOGS}/bam/{{sample}}.extract_umis.log"
     envmodules:
-        MOD_FGBIO
+        MODULES["fgbio"],
+        MODULES["java"]
     shell:
         """
         fgbio ExtractUmisFromBam \\
@@ -299,16 +217,14 @@ rule extract_umis_from_bam:
             2>&1 | tee {log}
         """
 
-
 # ---------------------------------------------------------------------------
-# Steps 5 + 6 – Picard SamToFastq  →  bwa mem -p  (PDF steps 3 + 4)
-# Convert UMI-tagged uBAM → interleaved fastq, then align with bwa mem.
+# Steps 5 + 6 – Picard SamToFastq →  bwa mem -p  (PDF steps 3 + 4)
+# Convert UMI-tagged uBAM → interleaved fastq, then align with bwa mem
+# and coordinate sort
 # ---------------------------------------------------------------------------
 
 rule sam_to_fastq_and_align:
     """
-    Picard SamToFastq (interleaved) piped directly into bwa mem -p.
-
     PDF commands:
       java -Xmx4g -jar picard.jar SamToFastq \\
         I={ubam_umi_extracted} F={fastq_umi_extracted} INTERLEAVE=true
@@ -317,17 +233,20 @@ rule sam_to_fastq_and_align:
         samtools sort -@ 8 -o {aligned_bam}
     """
     input:
-        ubam_umi = f"{RESULTS}/04_ubam_umi_tagged/{{sample}}.umi_tagged.bam",
-        ref      = REFERENCE
+        ubam_umi = f"{RESULTS}/bam/{{sample}}.umi_tagged.bam"
     output:
-        bam = temp(f"{RESULTS}/05_aligned/{{sample}}.aligned.bam")
+        bam = temp(f"{RESULTS}/bam/{{sample}}.aligned.bam")
     params:
-        mem    = MEMORY
+        mem = MEMORY,
+        ref = REFERENCE
     threads: THREADS
     log:
-        f"{LOGS}/05_aligned/{{sample}}.log"
+        f"{LOGS}/bam/{{sample}}.align.log"
     envmodules:
-        MOD_PICARD_ALIGN
+        MODULES["picard"],
+        MODULES["java"],
+        MODULES["bwa"],
+        MODULES["samtools"]
     shell:
         """
         picard --java-options "-Xmx{params.mem}g" SamToFastq \\
@@ -336,21 +255,18 @@ rule sam_to_fastq_and_align:
             INTERLEAVE=true \\
             QUIET=true \\
             2>>{log} | \\
-        bwa mem -p -t {threads} {input.ref} /dev/stdin 2>>{log} | \\
+        bwa mem -p -t {threads} {params.ref} /dev/stdin 2>>{log} | \\
         samtools sort -@ {threads} -o {output.bam} -
         """
 
-
 # ---------------------------------------------------------------------------
-# Step 7 – Picard MergeBamAlignment  (first merge, PDF step 5)
+# Step 7 – Picard MergeBamAlignment  (PDF step 5)
 # Merges the aligned BAM with the UMI-tagged uBAM so that aligned records
 # carry the ZA/ZB/RX tags and all Picard metadata.
 # ---------------------------------------------------------------------------
 
 rule merge_bam_alignment:
     """
-    Picard MergeBamAlignment: restore UMI tags into the aligned BAM.
-
     PDF command:
       java -Xmx4g -jar picard.jar MergeBamAlignment \\
         UNMAPPED={unaligned_bam_umi_extracted} \\
@@ -366,25 +282,26 @@ rule merge_bam_alignment:
         ALIGNER_PROPER_PAIR_FLAGS=false
     """
     input:
-        ubam    = f"{RESULTS}/04_ubam_umi_tagged/{{sample}}.umi_tagged.bam",
-        aligned = f"{RESULTS}/05_aligned/{{sample}}.aligned.bam",
-        ref     = REFERENCE
+        ubam = f"{RESULTS}/bam/{{sample}}.umi_tagged.bam",
+        aligned = f"{RESULTS}/bam/{{sample}}.aligned.bam"
     output:
-        bam = f"{RESULTS}/06_merged/{{sample}}.merged.bam",
-        bai = f"{RESULTS}/06_merged/{{sample}}.merged.bai"
+        bam = f"{RESULTS}/bam/{{sample}}.merged.bam",
+        bai = f"{RESULTS}/bam/{{sample}}.merged.bai"
     params:
-        mem    = MEMORY
+        mem = MEMORY,
+        ref = REFERENCE
     log:
-        f"{LOGS}/06_merged/{{sample}}.log"
+        f"{LOGS}/bam/{{sample}}.merge.log"
     envmodules:
-        MOD_PICARD
+        MODULES["picard"],
+        MODULES["java"]
     shell:
         """
         picard --java-options "-Xmx{params.mem}g" MergeBamAlignment \\
             UNMAPPED={input.ubam} \\
             ALIGNED={input.aligned} \\
             O={output.bam} \\
-            R={input.ref} \\
+            R={params.ref} \\
             CLIP_ADAPTERS=false \\
             VALIDATION_STRINGENCY=SILENT \\
             CREATE_INDEX=true \\
@@ -395,17 +312,13 @@ rule merge_bam_alignment:
             2>&1 | tee {log}
         """
 
-
 # ---------------------------------------------------------------------------
-# Step 8 (optional) – Picard CollectHsMetrics  (PDF step 6)
-# Pre-consensus QC: fold-80, coverage, off-target rates.
-# Requires a BED/interval file for your capture panel.
+# Step 8 – Picard CollectHsMetrics  (PDF step 6)
+# Coverage QC on pre-consensus alignments
 # ---------------------------------------------------------------------------
 
 rule collect_hs_metrics:
     """
-    Picard CollectHsMetrics: coverage QC on primary alignments.
-
     PDF command:
       java -Xmx4g -jar picard.jar CollectHsMetrics \\
         -I {aligned_tag_umi_bam} \\
@@ -414,28 +327,27 @@ rule collect_hs_metrics:
         --BAIT_INTERVALS {probes_intervals} \\
         --TARGET_INTERVALS	target_file_UMI_demo_data_hg38.bed	\\		
         --PER_TARGET_COVERAGE	probe_file_UMI_demo_data_hg38.bed
-
-    Only runs when a targets_intervals file is configured.
     """
     input:
-        bam = f"{RESULTS}/06_merged/{{sample}}.merged.bam",
-        ref = REFERENCE
+        bam = f"{RESULTS}/bam/{{sample}}.merged.bam"
     output:
-        metrics = f"{RESULTS}/06_merged/{{sample}}.hs_metrics.txt"
+        metrics = f"{RESULTS}/qc/{{sample}}.pre_consensus.hs_metrics.txt"
     params:
-        mem               = MEMORY,
-        bait_intervals    = config.get("bait_intervals", ""),
-        target_intervals  = config.get("target_intervals", ""),
-        probe_file        = config.get("probe_file", "")
+        mem = MEMORY,
+        ref = REFERENCE,
+        bait_intervals = config["bait_intervals"],
+        target_intervals = config["target_intervals"],
+        probe_file = config["probe_file"]
     log:
-        f"{LOGS}/06_merged/{{sample}}.hs_metrics.log"
+        f"{LOGS}/qc/{{sample}}.pre_consensus.hs_metrics.log"
     envmodules:
-        MOD_PICARD
+        MODULES["picard"],
+        MODULES["java"]
     shell:
         """
         picard --java-options "-Xmx{params.mem}g" CollectHsMetrics \\
             -I {input.bam} \\
-            -R {input.ref} \\
+            -R {params.ref} \\
             -O {output.metrics} \\
             --BAIT_INTERVALS {params.bait_intervals} \\
             --TARGET_INTERVALS {params.target_intervals} \\
@@ -443,17 +355,14 @@ rule collect_hs_metrics:
             2>&1 | tee {log}
         """
 
-
 # ---------------------------------------------------------------------------
 # Step 9 – fgbio GroupReadsByUmi  (PDF step 7)
-# Groups read pairs by mapped position + UMI.
+# Groups read pairs by mapped position + UMI into UMI families
 # Must use --strategy=paired for CallDuplexConsensusReads.
 # ---------------------------------------------------------------------------
 
 rule group_reads_by_umi:
     """
-    fgbio GroupReadsByUmi: cluster reads into UMI families.
-
     PDF command:
       java -Xmx4g -jar fgbio.jar GroupReadsByUmi \\
         --strategy=paired \\
@@ -462,22 +371,21 @@ rule group_reads_by_umi:
         --raw-tag=RX \\
         --min-map-q=10 \\
         --edits=1
-
-    Note: --strategy=paired is required by CallDuplexConsensusReads.
     """
     input:
-        bam = f"{RESULTS}/06_merged/{{sample}}.merged.bam",
-        bai = f"{RESULTS}/06_merged/{{sample}}.merged.bai"
+        bam = f"{RESULTS}/bam/{{sample}}.merged.bam",
+        bai = f"{RESULTS}/bam/{{sample}}.merged.bai"
     output:
-        bam  = f"{RESULTS}/07_grouped/{{sample}}.grouped.bam",
-        hist = f"{RESULTS}/07_grouped/{{sample}}.family_size_histogram.txt"
+        bam = f"{RESULTS}/bam/{{sample}}.grouped.bam",
+        hist = f"{RESULTS}/bam/{{sample}}.family_size_histogram.txt"
     params:
-        min_mapq  = config.get("min_map_quality", 10),
-        edits     = config.get("umi_edit_distance", 1)
+        min_mapq = config["min_map_quality"],
+        edits = config["umi_edit_distance"]
     log:
-        f"{LOGS}/07_grouped/{{sample}}.log"
+        f"{LOGS}/bam/{{sample}}.group_by_umi.log"
     envmodules:
-        MOD_FGBIO
+        MODULES["fgbio"],
+        MODULES["java"]
     shell:
         """
         fgbio GroupReadsByUmi \\
@@ -491,17 +399,20 @@ rule group_reads_by_umi:
             2>&1 | tee {log}
         """
 
-
 # ---------------------------------------------------------------------------
 # Step 10 – fgbio CallDuplexConsensusReads  (PDF step 8)
 # Assembles single-strand consensus reads, then combines
 # the two strands into a duplex consensus read.
+#
+#   --min-reads 2 1 1:
+#      first integer  = duplex filter (≥2 total reads to form a consensus)
+#      second integer = min reads from the first strand
+#      third integer  = min reads from the second strand
+#    Twist recommend 2 1 1 to require evidence from both strands.
 # ---------------------------------------------------------------------------
 
 rule call_duplex_consensus:
     """
-    fgbio CallDuplexConsensusReads: duplex error correction.
-
     PDF command:
       java -Xmx4g -jar fgbio.jar CallDuplexConsensusReads \\
         --input={grouped_by_umi_bam} \\
@@ -510,24 +421,19 @@ rule call_duplex_consensus:
         --error-rate-post-umi=30 \\
         --min-input-base-quality=30	\\
         --min-reads 2 1 1
-
-    --min-reads 2 1 1:
-      first integer  = duplex filter (≥2 total reads to form a consensus)
-      second integer = min reads from the first strand
-      third integer  = min reads from the second strand
-    Twist recommend 2 1 1 to require evidence from both strands.
     """
     input:
-        bam = f"{RESULTS}/07_grouped/{{sample}}.grouped.bam"
+        bam = f"{RESULTS}/bam/{{sample}}.grouped.bam"
     output:
-        ubam = f"{RESULTS}/08_consensus_ubam/{{sample}}.consensus.unmapped.bam"
+        ubam = f"{RESULTS}/bam/{{sample}}.consensus.unmapped.bam"
     params:
-        error_rate_pre    = config.get("error_rate_pre_umi", 45),
-        min_reads         = config.get("min_reads", "2 1 1")
+        error_rate_pre = config["error_rate_pre_umi"],
+        min_reads = config["min_reads"]
     log:
-        f"{LOGS}/08_consensus_ubam/{{sample}}.log"
+        f"{LOGS}/bam/{{sample}}.call_duplex.log"
     envmodules:
-        MOD_FGBIO
+        MODULES["fgbio"],
+        MODULES["java"]
     shell:
         """
         fgbio CallDuplexConsensusReads \\
@@ -540,34 +446,34 @@ rule call_duplex_consensus:
             2>&1 | tee {log}
         """
 
-
 # ---------------------------------------------------------------------------
-# Steps 11 + 12 – Picard SamToFastq  →  bwa mem -p  (PDF steps 9 re-alignment)
-# Same pattern as steps 5+6, applied to consensus uBAM.
+# Steps 11 + 12 – Picard SamToFastq  →  bwa mem -p  (PDF step 9)
+# Realign consensus reads (same as steps 3+4)
 # ---------------------------------------------------------------------------
 
 rule realign_consensus:
     """
-    Picard SamToFastq + bwa mem -p: re-align consensus reads.
-
-    PDF commands (same as steps 3+4):
+    PDF commands:
       java -Xmx4g -jar picard.jar SamToFastq \\
         I={unaligned_consensus_bam} F={fastq_consensus} INTERLEAVE=true
 
       bwa mem -p -t 8 {ref} -o {aligned_bam_consensus} {fastq_consensus}
     """
     input:
-        ubam = f"{RESULTS}/08_consensus_ubam/{{sample}}.consensus.unmapped.bam",
-        ref  = REFERENCE
+        ubam = f"{RESULTS}/bam/{{sample}}.consensus.unmapped.bam"
     output:
-        bam  = temp(f"{RESULTS}/09_consensus_aligned/{{sample}}.consensus.aligned.bam")
+        bam = temp(f"{RESULTS}/bam/{{sample}}.consensus.aligned.bam")
     params:
-        mem    = MEMORY
+        mem = MEMORY,
+        ref = REFERENCE
     threads: THREADS
     log:
-        f"{LOGS}/09_consensus_aligned/{{sample}}.log"
+        f"{LOGS}/bam/{{sample}}.consensus_align.log"
     envmodules:
-        MOD_PICARD_ALIGN
+        MODULES["picard"],
+        MODULES["java"],
+        MODULES["bwa"],
+        MODULES["samtools"]
     shell:
         """
         picard --java-options "-Xmx{params.mem}g" SamToFastq \\
@@ -576,10 +482,9 @@ rule realign_consensus:
             INTERLEAVE=true \\
             QUIET=true \\
             2>>{log} | \\
-        bwa mem -p -t {threads} {input.ref} /dev/stdout 2>>{log} | \\
+        bwa mem -p -t {threads} {params.ref} /dev/stdout 2>>{log} | \\
         samtools sort -@ {threads} -o {output.bam} -
         """
-
 
 # ---------------------------------------------------------------------------
 # Step 13 – Second Picard MergeBamAlignment  (PDF step 10)
@@ -589,8 +494,6 @@ rule realign_consensus:
 
 rule merge_consensus_bam:
     """
-    Picard MergeBamAlignment (second pass): retain UMI tag metadata in final BAM.
-
     PDF command:
       java -Xmx4g -jar picard.jar MergeBamAlignment \\
         VALIDATION_STRINGENCY=SILENT \\
@@ -627,28 +530,29 @@ rule merge_consensus_bam:
             RGPU=NA
     """
     input:
-        ubam    = f"{RESULTS}/08_consensus_ubam/{{sample}}.consensus.unmapped.bam",
-        aligned = f"{RESULTS}/09_consensus_aligned/{{sample}}.consensus.aligned.bam",
-        ref     = REFERENCE
+        ubam = f"{RESULTS}/bam/{{sample}}.consensus.unmapped.bam",
+        aligned = f"{RESULTS}/bam/{{sample}}.consensus.aligned.bam"
     output:
-        bam = f"{RESULTS}/10_consensus_final/{{sample}}.consensus.final.bam",
-        bai = f"{RESULTS}/10_consensus_final/{{sample}}.consensus.final.bai"
+        bam = f"{RESULTS}/bam/{{sample}}.consensus.final.bam",
+        bai = f"{RESULTS}/bam/{{sample}}.consensus.final.bai"
     params:
-        mem    = MEMORY
+        mem = MEMORY,
+        ref = REFERENCE
     log:
-        f"{LOGS}/10_consensus_final/{{sample}}.log"
+        f"{LOGS}/bam/{{sample}}.consensus_merge.log"
     envmodules:
-        MOD_PICARD
+        MODULES["picard"],
+        MODULES["java"]
     shell:
         """
-        tmp_bam="{RESULTS}/10_consensus_final/{wildcards.sample}.consensus.no_rg.bam"
+        tmp_bam="{RESULTS}/bam/{wildcards.sample}.consensus.no_rg.bam"
 
         picard --java-options "-Xmx{params.mem}g" MergeBamAlignment \\
             VALIDATION_STRINGENCY=SILENT \\
             UNMAPPED={input.ubam} \\
             ALIGNED={input.aligned} \\
             O=${{tmp_bam}} \\
-            R={input.ref} \\
+            R={params.ref} \\
             CLIP_ADAPTERS=false \\
             CREATE_INDEX=true \\
             EXPECTED_ORIENTATIONS=FR \\
@@ -684,15 +588,12 @@ rule merge_consensus_bam:
         """
 
 # ---------------------------------------------------------------------------
-# Step 14 (optional) – Picard CollectHsMetrics  (PDF step 10a)
+# Step 14 – Picard CollectHsMetrics  (PDF step 10a)
 # Post-consensus QC: fold-80, coverage, off-target rates.
-# Requires a BED/interval file for your capture panel.
 # ---------------------------------------------------------------------------
 
 rule collect_hs_metrics_post:
     """
-    Picard CollectHsMetrics: coverage QC on primary alignments.
-
     PDF command:
       java -Xmx4g -jar picard.jar CollectHsMetrics \\
         -I {consensus_aligned_merged_bam} \\
@@ -701,23 +602,22 @@ rule collect_hs_metrics_post:
         --BAIT_INTERVALS {probes_intervals} \\
         --TARGET_INTERVALS	target_file_UMI_demo_data_hg38.bed	\\		
         --PER_TARGET_COVERAGE	probe_file_UMI_demo_data_hg38.bed
-
-    Only runs when a targets_intervals file is configured.
     """
     input:
-        bam = f"{RESULTS}/10_consensus_final/{{sample}}.consensus.final.bam",
+        bam = f"{RESULTS}/bam/{{sample}}.consensus.final.bam"
     output:
-        metrics = f"{RESULTS}/10_consensus_final/{{sample}}.consensus.hs_metrics.txt"
+        metrics = f"{RESULTS}/qc/{{sample}}.consensus.hs_metrics.txt"
     params:
-        mem               = MEMORY,
-        bait_intervals    = config.get("bait_intervals", ""),
-        target_intervals  = config.get("target_intervals", ""),
-        probe_file        = config.get("probe_file", ""),
-        ref = REFERENCE
+        mem = MEMORY,
+        ref = REFERENCE,
+        bait_intervals = config["bait_intervals"],
+        target_intervals = config["target_intervals"],
+        probe_file = config["probe_file"]
     log:
-        f"{LOGS}/10_consensus_final/{{sample}}.hs_metrics.log"
+        f"{LOGS}/qc/{{sample}}.consensus.hs_metrics.log"
     envmodules:
-        MOD_PICARD
+        MODULES["picard"],
+        MODULES["java"]
     shell:
         """
         picard --java-options "-Xmx{params.mem}g" CollectHsMetrics \\
@@ -730,22 +630,46 @@ rule collect_hs_metrics_post:
             2>&1 | tee {log}
         """
 
+# ---------------------------------------------------------------------------
+# MultiQC
+# Aggregate all QC reports (FastQC + HsMetrics)
+# ---------------------------------------------------------------------------
+
+rule multiqc:
+    input:
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.zip",
+               sample=SAMPLE_NAMES, read=["R1", "R2"]),
+        expand(f"{RESULTS}/qc/{{sample}}.pre_consensus.hs_metrics.txt",
+               sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/qc/{{sample}}.consensus.hs_metrics.txt",
+               sample=SAMPLE_NAMES)
+    output:
+        f"{RESULTS}/qc/multiqc_report.html"
+    params:
+        indir = f"{RESULTS}/qc",
+        outdir = f"{RESULTS}/qc"
+    log:
+        f"{LOGS}/qc/multiqc.log"
+    envmodules:
+        MODULES["multiqc"]
+    shell:
+        "multiqc {params.indir} -o {params.outdir} -f --exclude fastqc 2>&1 | tee {log}"
+
 
 # ---------------------------------------------------------------------------
 # Summary report
 # ---------------------------------------------------------------------------
 
 rule generate_summary_report:
-    """Collect per-sample statistics from all pipeline stages."""
     input:
-        expand(f"{RESULTS}/02_umi_extracted/{{sample}}_umi_stats.txt",        sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/07_grouped/{{sample}}.family_size_histogram.txt",   sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/10_consensus_final/{{sample}}.consensus.final.bam", sample=SAMPLE_NAMES)
+        expand(f"{RESULTS}/umi_extracted/{{sample}}_umi_stats.txt",        sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/bam/{{sample}}.family_size_histogram.txt",   sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/bam/{{sample}}.consensus.final.bam", sample=SAMPLE_NAMES)
     output:
         report = f"{RESULTS}/summary_report.txt"
     log:
         f"{LOGS}/summary.log"
     envmodules:
-        MOD_PREPROCESSING
+        MODULES["python"]
     script:
         "scripts/generate_summary.py"
