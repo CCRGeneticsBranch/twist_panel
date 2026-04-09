@@ -8,14 +8,15 @@
 # R1/R2 values are filenames within raw_data_dir (not full paths).
 # The TSV path may be absolute or relative to the run directory.
 # ---------------------------------------------------------------------------
-samples: "samples.tsv"
+samples: WORKDIR/config/samples.tsv
 
 # ---------------------------------------------------------------------------
 # Directories (use absolute paths)
 # ---------------------------------------------------------------------------
 raw_data_dir: "/path/to/raw/fastqs"   # input fastq file directory
-results_dir:  "/path/to/output"        # output directory
-logs_dir:     "/path/to/output/logs"   # log file directory
+results_dir:  WORKDIR/results        # output directory
+logs_dir:     WORKDIR/logs   # log file directory
+scriptsdir:    PIPELINE_HOME/workflow/scripts/
 
 # ---------------------------------------------------------------------------
 # Reference genome  (must be BWA-indexed)
@@ -32,14 +33,14 @@ reference_genome: "/fdb/bwa/indexes/hg38.fa"
 #  gatk       4.2.6.1
 # ---------------------------------------------------------------------------
 modules:
-  fastqc:   "fastqc/0.11.9"
-  multiqc:  "multiqc/1.12"
-  python:   "python/3.9"
+  fastqc:   "fastqc"
+  multiqc:  "multiqc"
+  python:   "python"
   bwa:      "bwa/0.7.17"
-  samtools: "samtools/1.15.1"
-  picard:   "picard/2.27.1"
-  java:     "java/11"
-  fgbio:    "fgbio/1.5.1"
+  samtools: "samtools"
+  picard:   "picard"
+  java:     "java"
+  fgbio:    "fgbio/2.0.2"
 
 # ---------------------------------------------------------------------------
 # Computational resources

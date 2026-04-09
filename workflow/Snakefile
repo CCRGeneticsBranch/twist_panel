@@ -53,12 +53,12 @@ MODULES = config["modules"]
 rule all:
     input:
         # FastQC on raw reads
-        expand(f"{RESULTS}/qc/fastqc/{{sample}}_R1_fastqc.html", sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/qc/fastqc/{{sample}}_R2_fastqc.html", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}.R1_fastqc.html", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}.R2_fastqc.html", sample=SAMPLE_NAMES),
 
         # Pre-processed fastqs (UMIs moved inline from header)
-        expand(f"{RESULTS}/umi_extracted/{{sample}}_R1.fastq.gz", sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/umi_extracted/{{sample}}_R2.fastq.gz", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/umi_extracted/{{sample}}.R1.fastq.gz", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/umi_extracted/{{sample}}.R2.fastq.gz", sample=SAMPLE_NAMES),
 
         # uBAM with UMI tags (ZA / ZB / RX)
         expand(f"{RESULTS}/bam/{{sample}}.umi_tagged.bam", sample=SAMPLE_NAMES),
@@ -71,9 +71,9 @@ rule all:
         expand(f"{RESULTS}/bam/{{sample}}.grouped.bam", sample=SAMPLE_NAMES),
 
         # Final consensus BAM (aligned + UMI tags retained)
-        expand(f"{RESULTS}/bam/{{sample}}.consensus.final.bam",
+        expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bam",
                sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/bam/{{sample}}.consensus.final.bai",
+        expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bai",
                sample=SAMPLE_NAMES),
         
         # MultiQC and summary report
@@ -89,12 +89,12 @@ rule fastqc_raw:
     input:
         lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample][wc.read]}"
     output:
-        html = f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.html",
-        zip = f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.zip"
+        html = f"{RESULTS}/qc/fastqc/{{sample}}.{{read}}_fastqc.html",
+        zip = f"{RESULTS}/qc/fastqc/{{sample}}.{{read}}_fastqc.zip"
     params:
         outdir = f"{RESULTS}/qc/fastqc"
     log:
-        f"{LOGS}/qc/fastqc_{{sample}}_{{read}}.log"
+        f"{LOGS}/qc/{{sample}}.{{read}}_fastqc.log"
     envmodules:
         MODULES["fastqc"]
     shell:
@@ -116,9 +116,9 @@ rule extract_umi_from_header:
         r1 = lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample]['R1']}",
         r2 = lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample]['R2']}"
     output:
-        r1 = f"{RESULTS}/umi_extracted/{{sample}}_R1.fastq.gz",
-        r2 = f"{RESULTS}/umi_extracted/{{sample}}_R2.fastq.gz",
-        stats = f"{RESULTS}/umi_extracted/{{sample}}_umi_stats.txt"
+        r1 = f"{RESULTS}/umi_extracted/{{sample}}.R1.fastq.gz",
+        r2 = f"{RESULTS}/umi_extracted/{{sample}}.R2.fastq.gz",
+        stats = f"{RESULTS}/umi_extracted/{{sample}}.umi_stats.txt"
     params:
         script = os.path.join(workflow.basedir, "scripts", "extract_umi.py"),
         umi_pattern = UMI_PATTERN
@@ -150,8 +150,8 @@ rule fastq_to_sam:
         SM={sample} LB=Library1 PU=Unit1 PL=Illumina
     """
     input:
-        r1 = f"{RESULTS}/umi_extracted/{{sample}}_R1.fastq.gz",
-        r2 = f"{RESULTS}/umi_extracted/{{sample}}_R2.fastq.gz"
+        r1 = f"{RESULTS}/umi_extracted/{{sample}}.R1.fastq.gz",
+        r2 = f"{RESULTS}/umi_extracted/{{sample}}.R2.fastq.gz"
     output:
         ubam = temp(f"{RESULTS}/bam/{{sample}}.unmapped.bam")
     params:
@@ -331,7 +331,7 @@ rule collect_hs_metrics:
     input:
         bam = f"{RESULTS}/bam/{{sample}}.merged.bam"
     output:
-        metrics = f"{RESULTS}/qc/{{sample}}.pre_consensus.hs_metrics.txt"
+        metrics = f"{RESULTS}/qc/{{sample}}.pre_consensus_hs_metrics.txt"
     params:
         mem = MEMORY,
         ref = REFERENCE,
@@ -339,7 +339,7 @@ rule collect_hs_metrics:
         target_intervals = config["target_intervals"],
         probe_file = config["probe_file"]
     log:
-        f"{LOGS}/qc/{{sample}}.pre_consensus.hs_metrics.log"
+        f"{LOGS}/qc/{{sample}}.pre_consensus_hs_metrics.log"
     envmodules:
         MODULES["picard"],
         MODULES["java"]
@@ -425,7 +425,7 @@ rule call_duplex_consensus:
     input:
         bam = f"{RESULTS}/bam/{{sample}}.grouped.bam"
     output:
-        ubam = f"{RESULTS}/bam/{{sample}}.consensus.unmapped.bam"
+        ubam = f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam"
     params:
         error_rate_pre = config["error_rate_pre_umi"],
         min_reads = config["min_reads"]
@@ -460,9 +460,9 @@ rule realign_consensus:
       bwa mem -p -t 8 {ref} -o {aligned_bam_consensus} {fastq_consensus}
     """
     input:
-        ubam = f"{RESULTS}/bam/{{sample}}.consensus.unmapped.bam"
+        ubam = f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam"
     output:
-        bam = temp(f"{RESULTS}/bam/{{sample}}.consensus.aligned.bam")
+        bam = temp(f"{RESULTS}/bam/{{sample}}.consensus_aligned.bam")
     params:
         mem = MEMORY,
         ref = REFERENCE
@@ -530,11 +530,13 @@ rule merge_consensus_bam:
             RGPU=NA
     """
     input:
-        ubam = f"{RESULTS}/bam/{{sample}}.consensus.unmapped.bam",
-        aligned = f"{RESULTS}/bam/{{sample}}.consensus.aligned.bam"
+        ubam = f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam",
+        aligned = f"{RESULTS}/bam/{{sample}}.consensus_aligned.bam"
     output:
-        bam = f"{RESULTS}/bam/{{sample}}.consensus.final.bam",
-        bai = f"{RESULTS}/bam/{{sample}}.consensus.final.bai"
+        bam = f"{RESULTS}/bam/{{sample}}.consensus_final.bam",
+        bai = f"{RESULTS}/bam/{{sample}}.consensus_final.bai",
+        no_rg_bam = temp(f"{RESULTS}/bam/{{sample}}.consensus_no_rg.bam"),
+        no_rg_bai = temp(f"{RESULTS}/bam/{{sample}}.consensus_no_rg.bai")
     params:
         mem = MEMORY,
         ref = REFERENCE
@@ -545,13 +547,11 @@ rule merge_consensus_bam:
         MODULES["java"]
     shell:
         """
-        tmp_bam="{RESULTS}/bam/{wildcards.sample}.consensus.no_rg.bam"
-
         picard --java-options "-Xmx{params.mem}g" MergeBamAlignment \\
             VALIDATION_STRINGENCY=SILENT \\
             UNMAPPED={input.ubam} \\
             ALIGNED={input.aligned} \\
-            O=${{tmp_bam}} \\
+            O={output.no_rg_bam} \\
             R={params.ref} \\
             CLIP_ADAPTERS=false \\
             CREATE_INDEX=true \\
@@ -574,7 +574,7 @@ rule merge_consensus_bam:
             2>&1 | tee {log}
 
         picard --java-options "-Xmx{params.mem}g" AddOrReplaceReadGroups \\
-            I=${{tmp_bam}} \\
+            I={output.no_rg_bam} \\
             O={output.bam} \\
             RGID={wildcards.sample} \\
             RGLB=Library1 \\
@@ -583,8 +583,6 @@ rule merge_consensus_bam:
             RGPU=NA \\
             CREATE_INDEX=true \\
             2>&1 | tee -a {log}
-
-        rm -f "${tmp_bam}" "${tmp_bam%.bam}.bai"
         """
 
 # ---------------------------------------------------------------------------
@@ -604,9 +602,9 @@ rule collect_hs_metrics_post:
         --PER_TARGET_COVERAGE	probe_file_UMI_demo_data_hg38.bed
     """
     input:
-        bam = f"{RESULTS}/bam/{{sample}}.consensus.final.bam"
+        bam = f"{RESULTS}/bam/{{sample}}.consensus_final.bam"
     output:
-        metrics = f"{RESULTS}/qc/{{sample}}.consensus.hs_metrics.txt"
+        metrics = f"{RESULTS}/qc/{{sample}}.consensus_hs_metrics.txt"
     params:
         mem = MEMORY,
         ref = REFERENCE,
@@ -614,7 +612,7 @@ rule collect_hs_metrics_post:
         target_intervals = config["target_intervals"],
         probe_file = config["probe_file"]
     log:
-        f"{LOGS}/qc/{{sample}}.consensus.hs_metrics.log"
+        f"{LOGS}/qc/{{sample}}.consensus_hs_metrics.log"
     envmodules:
         MODULES["picard"],
         MODULES["java"]
@@ -637,11 +635,11 @@ rule collect_hs_metrics_post:
 
 rule multiqc:
     input:
-        expand(f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.zip",
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}.{{read}}_fastqc.zip",
                sample=SAMPLE_NAMES, read=["R1", "R2"]),
-        expand(f"{RESULTS}/qc/{{sample}}.pre_consensus.hs_metrics.txt",
+        expand(f"{RESULTS}/qc/{{sample}}.pre_consensus_hs_metrics.txt",
                sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/qc/{{sample}}.consensus.hs_metrics.txt",
+        expand(f"{RESULTS}/qc/{{sample}}.consensus_hs_metrics.txt",
                sample=SAMPLE_NAMES)
     output:
         f"{RESULTS}/qc/multiqc_report.html"
@@ -662,9 +660,9 @@ rule multiqc:
 
 rule generate_summary_report:
     input:
-        expand(f"{RESULTS}/umi_extracted/{{sample}}_umi_stats.txt",        sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/umi_extracted/{{sample}}.umi_stats.txt",        sample=SAMPLE_NAMES),
         expand(f"{RESULTS}/bam/{{sample}}.family_size_histogram.txt",   sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/bam/{{sample}}.consensus.final.bam", sample=SAMPLE_NAMES)
+        expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bam", sample=SAMPLE_NAMES)
     output:
         report = f"{RESULTS}/summary_report.txt"
     log:

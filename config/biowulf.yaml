@@ -1,33 +1,10 @@
-# Snakemake SLURM profile
-# Usage: snakemake --snakefile $PIPELINE/Snakefile --profile $PIPELINE/config/slurm_profile.yaml
-#
-# Adjust account, partition, and resource defaults to match your cluster.
-
-jobs: 100
-use-envmodules: true
-
-default-resources:
-  slurm_account: "your_account"
-  slurm_partition: "norm"
-  runtime: 240          # minutes
-  mem_mb: 8000
-  cpus_per_task: 8
-
-set-resources:
-  # Alignment and re-alignment are CPU- and memory-intensive
-  sam_to_fastq_and_align:
-    runtime: 480
-    mem_mb: 16000
-    cpus_per_task: 16
-  realign_consensus:
-    runtime: 240
-    mem_mb: 16000
-    cpus_per_task: 16
-  # Picard merge steps need enough heap
-  merge_bam_alignment:
-    mem_mb: 16000
-  merge_consensus_bam:
-    mem_mb: 16000
-  # fgbio consensus calling can be memory-hungry
-  call_duplex_consensus:
-    mem_mb: 16000
+# Cluster resources per rule
+__default__:
+    gres: lscratch:500
+    mem: 16g
+    threads: 8
+    time: 00-04:00:00
+    partition: norm
+    name: "{rule}.{wildcards}"
+    output: "logs/{rule}.${{SLURM_JOBID}}.%j.{wildcards}.out"
+    error: "logs/{rule}.${{SLURM_JOBID}}.%j.{wildcards}.err"
