@@ -56,13 +56,6 @@ rule all:
         expand(f"{RESULTS}/qc/fastqc/{{sample}}.R1_fastqc.html", sample=SAMPLE_NAMES),
         expand(f"{RESULTS}/qc/fastqc/{{sample}}.R2_fastqc.html", sample=SAMPLE_NAMES),
 
-        # Pre-processed fastqs (UMIs moved inline from header)
-        expand(f"{RESULTS}/umi_extracted/{{sample}}.R1.fastq.gz", sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/umi_extracted/{{sample}}.R2.fastq.gz", sample=SAMPLE_NAMES),
-
-        # uBAM with UMI tags (ZA / ZB / RX)
-        expand(f"{RESULTS}/bam/{{sample}}.umi_tagged.bam", sample=SAMPLE_NAMES),
-
         # Primary aligned BAM (after first MergeBamAlignment)
         expand(f"{RESULTS}/bam/{{sample}}.merged.bam", sample=SAMPLE_NAMES),
         expand(f"{RESULTS}/bam/{{sample}}.merged.bai", sample=SAMPLE_NAMES),
@@ -101,215 +94,73 @@ rule fastqc_raw:
         "fastqc -o {params.outdir} -f fastq {input} 2>&1 | tee {log}"
 
 # ---------------------------------------------------------------------------
-# Step 2 – Custom: move UMIs from header into reads inline
-#
-# Parse UMI1+UMI2 from the read name and prepend to its read:
-#       UMI1 → first 5 bases of R1  (read structure 5M+T)
-#       UMI2 → first 5 bases of R2  (read structure 5M+T)
-# Since UMIs are in the read name (not at the start of the read sequence)
-# we prepend UMI1 → R1 and UMI2 → R2 so the standard fgbio ExtractUmisFromBam
-# read-structure can strip them into ZA/ZB/RX tags downstream.
+# Steps 2 + 3 – Align raw fastqs directly with bwa mem
 # ---------------------------------------------------------------------------
 
-rule extract_umi_from_header:
+rule align_raw_fastq:
     input:
         r1 = lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample]['R1']}",
         r2 = lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample]['R2']}"
     output:
-        r1 = f"{RESULTS}/umi_extracted/{{sample}}.R1.fastq.gz",
-        r2 = f"{RESULTS}/umi_extracted/{{sample}}.R2.fastq.gz",
-        stats = f"{RESULTS}/umi_extracted/{{sample}}.umi_stats.txt"
-    params:
-        script = os.path.join(workflow.basedir, "scripts", "extract_umi.py"),
-        umi_pattern = UMI_PATTERN
-    log:
-        f"{LOGS}/umi_extracted/{{sample}}.log"
-    envmodules:
-        MODULES["python"]
-    shell:
-        """
-        python {params.script} \
-            --r1 {input.r1} --r2 {input.r2} \
-            --out_r1 {output.r1} --out_r2 {output.r2} \
-            --stats {output.stats} \
-            --umi_pattern '{params.umi_pattern}' \
-            --split_umis \
-            2>&1 | tee {log}
-        """
-
-# ---------------------------------------------------------------------------
-# Step 3 – Picard FastqToSam  (PDF step 1)
-# Convert paired fastqs to an unmapped BAM with sample metadata
-# ---------------------------------------------------------------------------
-
-rule fastq_to_sam:
-    """
-    PDF command:
-      java -Xmx4g -jar picard.jar FastqToSam \\
-        O={unaligned_bam} F1={r1} F2={r2} \\
-        SM={sample} LB=Library1 PU=Unit1 PL=Illumina
-    """
-    input:
-        r1 = f"{RESULTS}/umi_extracted/{{sample}}.R1.fastq.gz",
-        r2 = f"{RESULTS}/umi_extracted/{{sample}}.R2.fastq.gz"
-    output:
-        ubam = temp(f"{RESULTS}/bam/{{sample}}.unmapped.bam")
-    params:
-        mem = MEMORY,
-        sample = lambda wc: wc.sample
-    log:
-        f"{LOGS}/bam/{{sample}}.fastq_to_sam.log"
-    envmodules:
-        MODULES["picard"],
-        MODULES["java"]
-    shell:
-        """
-        picard --java-options "-Xmx{params.mem}g" FastqToSam \\
-            O={output.ubam} \\
-            F1={input.r1} \\
-            F2={input.r2} \\
-            SM={params.sample} \\
-            LB=Library1 \\
-            PU=Unit1 \\
-            PL=Illumina \\
-            2>&1 | tee {log}
-        """
-
-# ---------------------------------------------------------------------------
-# Step 4 – fgbio ExtractUmisFromBam  (PDF step 2)
-# Strips the inline UMI prefix from each read and stores it in tags.
-#   ZA = 5' UMI (from R1)
-#   ZB = 3' UMI (from R2)
-#   RX = combined "UMI1-UMI2"
-# Adaptation: read structure is 5M+T (no skip) because skip bases are not
-# present in UMIs extracted from the read-name header.
-# ---------------------------------------------------------------------------
-
-rule extract_umis_from_bam:
-    """
-    PDF command:
-      java -Xmx4g -jar fgbio.jar ExtractUmisFromBam \\
-        --input={unaligned_bam} \\
-        --output={unaligned_bam_umi_extracted} \\
-        --read-structure=5M2S+T 5M2S+T \\
-        --molecular-index-tags=ZA ZB \\
-        --single-tag=RX
-    """
-    input:
-        ubam = f"{RESULTS}/bam/{{sample}}.unmapped.bam"
-    output:
-        ubam_umi = f"{RESULTS}/bam/{{sample}}.umi_tagged.bam"
-    params:
-        rs = READ_STRUCTURE
-    log:
-        f"{LOGS}/bam/{{sample}}.extract_umis.log"
-    envmodules:
-        MODULES["fgbio"],
-        MODULES["java"]
-    shell:
-        """
-        fgbio ExtractUmisFromBam \\
-            --input={input.ubam} \\
-            --output={output.ubam_umi} \\
-            --read-structure={params.rs} {params.rs} \\
-            --molecular-index-tags=ZA ZB \\
-            --single-tag=RX \\
-            2>&1 | tee {log}
-        """
-
-# ---------------------------------------------------------------------------
-# Steps 5 + 6 – Picard SamToFastq →  bwa mem -p  (PDF steps 3 + 4)
-# Convert UMI-tagged uBAM → interleaved fastq, then align with bwa mem
-# and coordinate sort
-# ---------------------------------------------------------------------------
-
-rule sam_to_fastq_and_align:
-    """
-    PDF commands:
-      java -Xmx4g -jar picard.jar SamToFastq \\
-        I={ubam_umi_extracted} F={fastq_umi_extracted} INTERLEAVE=true
-
-      bwa mem -p -t 8 {ref} {fastq_umi_extracted} | \\
-        samtools sort -@ 8 -o {aligned_bam}
-    """
-    input:
-        ubam_umi = f"{RESULTS}/bam/{{sample}}.umi_tagged.bam"
-    output:
         bam = temp(f"{RESULTS}/bam/{{sample}}.aligned.bam")
     params:
-        mem = MEMORY,
         ref = REFERENCE
     threads: THREADS
     log:
         f"{LOGS}/bam/{{sample}}.align.log"
     envmodules:
-        MODULES["picard"],
-        MODULES["java"],
         MODULES["bwa"],
         MODULES["samtools"]
     shell:
         """
-        picard --java-options "-Xmx{params.mem}g" SamToFastq \\
-            I={input.ubam_umi} \\
-            F=/dev/stdout \\
-            INTERLEAVE=true \\
-            QUIET=true \\
-            2>>{log} | \\
-        bwa mem -p -t {threads} {params.ref} /dev/stdin 2>>{log} | \\
-        samtools sort -@ {threads} -o {output.bam} -
+        bwa mem -t {threads} {params.ref} {input.r1} {input.r2} 2>>{log} | \\
+        samtools sort -@ {threads} -o {output.bam} - 2>>{log}
         """
 
+
 # ---------------------------------------------------------------------------
-# Step 7 – Picard MergeBamAlignment  (PDF step 5)
-# Merges the aligned BAM with the UMI-tagged uBAM so that aligned records
-# carry the ZA/ZB/RX tags and all Picard metadata.
+# Step 4 – Add ZA/ZB/RX tags by parsing UMIs from read names
 # ---------------------------------------------------------------------------
 
-rule merge_bam_alignment:
-    """
-    PDF command:
-      java -Xmx4g -jar picard.jar MergeBamAlignment \\
-        UNMAPPED={unaligned_bam_umi_extracted} \\
-        ALIGNED={aligned_bam_umi_extracted} \\
-        O={aligned_tag_umi_bam} \\
-        R={reference_fasta} \\
-        CLIP_ADAPTERS=false \\
-        VALIDATION_STRINGENCY=SILENT \\
-        CREATE_INDEX=true \\
-        EXPECTED_ORIENTATIONS=FR \\
-        MAX_GAPS=-1 \\
-        SO=coordinate \\
-        ALIGNER_PROPER_PAIR_FLAGS=false
-    """
+rule add_umi_tags_from_read_name:
     input:
-        ubam = f"{RESULTS}/bam/{{sample}}.umi_tagged.bam",
-        aligned = f"{RESULTS}/bam/{{sample}}.aligned.bam"
+        bam = f"{RESULTS}/bam/{{sample}}.aligned.bam"
     output:
         bam = f"{RESULTS}/bam/{{sample}}.merged.bam",
         bai = f"{RESULTS}/bam/{{sample}}.merged.bai"
     params:
-        mem = MEMORY,
-        ref = REFERENCE
+        script = os.path.join(workflow.basedir, "scripts", "tag_umi_from_read_name.py"),
+        umi_pattern = UMI_PATTERN
     log:
         f"{LOGS}/bam/{{sample}}.merge.log"
     envmodules:
+        MODULES["python"],
+        MODULES["samtools"],
         MODULES["picard"],
         MODULES["java"]
     shell:
         """
-        picard --java-options "-Xmx{params.mem}g" MergeBamAlignment \\
-            UNMAPPED={input.ubam} \\
-            ALIGNED={input.aligned} \\
-            O={output.bam} \\
-            R={params.ref} \\
-            CLIP_ADAPTERS=false \\
-            VALIDATION_STRINGENCY=SILENT \\
-            CREATE_INDEX=true \\
-            EXPECTED_ORIENTATIONS=FR \\
-            MAX_GAPS=-1 \\
-            SO=coordinate \\
-            ALIGNER_PROPER_PAIR_FLAGS=false \\
+        tmp_bam="{RESULTS}/bam/{wildcards.sample}.merged_no_rg.bam"
+
+        python {params.script} \\
+            --input-bam {input.bam} \\
+            --output-bam ${{tmp_bam}} \\
+            --umi-pattern '{params.umi_pattern}' \\
             2>&1 | tee {log}
+
+        picard AddOrReplaceReadGroups \\
+            I=${{tmp_bam}} \\
+            O={output.bam} \\
+            RGID={wildcards.sample} \\
+            RGLB=Library1 \\
+            RGPL=Illumina \\
+            RGSM={wildcards.sample} \\
+            RGPU=Unit1 \\
+            CREATE_INDEX=false \\
+            2>&1 | tee -a {log}
+
+        samtools index {output.bam} {output.bai} 2>>{log}
+        rm -f "${{tmp_bam}}"
         """
 
 # ---------------------------------------------------------------------------
@@ -660,7 +511,6 @@ rule multiqc:
 
 rule generate_summary_report:
     input:
-        expand(f"{RESULTS}/umi_extracted/{{sample}}.umi_stats.txt",        sample=SAMPLE_NAMES),
         expand(f"{RESULTS}/bam/{{sample}}.family_size_histogram.txt",   sample=SAMPLE_NAMES),
         expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bam", sample=SAMPLE_NAMES)
     output:
