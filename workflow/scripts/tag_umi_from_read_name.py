@@ -2,7 +2,7 @@
 """Copy UMI values from read names into RX/ZA/ZB BAM tags.
 
 This script expects UMIs to be present in the read name and uses a regex with
-named groups 'umi_1' and 'umi_2' (same convention as extract_umi.py).
+named groups 'umi_1' and 'umi_2'.
 
 It streams BAM -> SAM -> BAM through samtools to avoid extra Python deps.
 """

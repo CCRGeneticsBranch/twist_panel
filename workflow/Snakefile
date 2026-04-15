@@ -35,12 +35,8 @@ if samples_df["Sample"].duplicated().any():
 SAMPLES = samples_df.set_index("Sample")[["R1", "R2"]].to_dict("index")
 SAMPLE_NAMES = list(SAMPLES.keys()) if SAMPLES else []
 
-THREADS = config["threads"]
-MEMORY  = config["memory_gb"]   # per-tool heap (matches PDF: -Xmx4g)
-
 # UMI parameters
 UMI_PATTERN     = config["umi_pattern"]
-READ_STRUCTURE  = config["umi_read_structure"]
 
 # Per-tool module names/versions are looked up directly in each rule
 MODULES = config["modules"]
@@ -53,8 +49,8 @@ MODULES = config["modules"]
 rule all:
     input:
         # FastQC on raw reads
-        expand(f"{RESULTS}/qc/fastqc/{{sample}}.R1_fastqc.html", sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/qc/fastqc/{{sample}}.R2_fastqc.html", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}_R1_fastqc.html", sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}_R2_fastqc.html", sample=SAMPLE_NAMES),
 
         # Primary aligned BAM (after first MergeBamAlignment)
         expand(f"{RESULTS}/bam/{{sample}}.merged.bam", sample=SAMPLE_NAMES),
@@ -82,16 +78,28 @@ rule fastqc_raw:
     input:
         lambda wc: f"{RAW_DATA}/{SAMPLES[wc.sample][wc.read]}"
     output:
-        html = f"{RESULTS}/qc/fastqc/{{sample}}.{{read}}_fastqc.html",
-        zip = f"{RESULTS}/qc/fastqc/{{sample}}.{{read}}_fastqc.zip"
+        html = f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.html",
+        zip = f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.zip"
     params:
         outdir = f"{RESULTS}/qc/fastqc"
     log:
-        f"{LOGS}/qc/{{sample}}.{{read}}_fastqc.log"
+        f"{LOGS}/qc/{{sample}}_{{read}}_fastqc.log"
     envmodules:
         MODULES["fastqc"]
     shell:
-        "fastqc -o {params.outdir} -f fastq {input} 2>&1 | tee {log}"
+        """
+        # Get the input filename without path
+        infile=$(basename {input})
+        inbase="${{infile%.*}}"  # Remove .gz
+        inbase="${{inbase%.*}}"  # Remove .fastq
+        
+        # Run fastqc
+        fastqc -o {params.outdir} {input} 2>&1 | tee {log}
+        
+        # Rename outputs to match expected naming
+        mv {params.outdir}/${{inbase}}_fastqc.html {output.html}
+        mv {params.outdir}/${{inbase}}_fastqc.zip {output.zip}
+        """
 
 # ---------------------------------------------------------------------------
 # Steps 2 + 3 – Align raw fastqs directly with bwa mem
@@ -105,7 +113,6 @@ rule align_raw_fastq:
         bam = temp(f"{RESULTS}/bam/{{sample}}.aligned.bam")
     params:
         ref = REFERENCE
-    threads: THREADS
     log:
         f"{LOGS}/bam/{{sample}}.align.log"
     envmodules:
@@ -113,8 +120,8 @@ rule align_raw_fastq:
         MODULES["samtools"]
     shell:
         """
-        bwa mem -t {threads} {params.ref} {input.r1} {input.r2} 2>>{log} | \\
-        samtools sort -@ {threads} -o {output.bam} - 2>>{log}
+        bwa mem -t $SLURM_CPUS_PER_TASK {params.ref} {input.r1} {input.r2} 2>>{log} | \
+        samtools sort -@ $SLURM_CPUS_PER_TASK -o {output.bam} - 2>>{log}
         """
 
 
@@ -148,7 +155,7 @@ rule add_umi_tags_from_read_name:
             --umi-pattern '{params.umi_pattern}' \\
             2>&1 | tee {log}
 
-        picard AddOrReplaceReadGroups \\
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \\
             I=${{tmp_bam}} \\
             O={output.bam} \\
             RGID={wildcards.sample} \\
@@ -184,7 +191,6 @@ rule collect_hs_metrics:
     output:
         metrics = f"{RESULTS}/qc/{{sample}}.pre_consensus_hs_metrics.txt"
     params:
-        mem = MEMORY,
         ref = REFERENCE,
         bait_intervals = config["bait_intervals"],
         target_intervals = config["target_intervals"],
@@ -196,7 +202,7 @@ rule collect_hs_metrics:
         MODULES["java"]
     shell:
         """
-        picard --java-options "-Xmx{params.mem}g" CollectHsMetrics \\
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar CollectHsMetrics \
             -I {input.bam} \\
             -R {params.ref} \\
             -O {output.metrics} \\
@@ -239,7 +245,7 @@ rule group_reads_by_umi:
         MODULES["java"]
     shell:
         """
-        fgbio GroupReadsByUmi \\
+        java -Xmx4g -Djava.io.tmpdir=/lscratch/$SLURM_JOB_ID -jar $FGBIO_JAR GroupReadsByUmi \\
             --strategy=paired \\
             --input={input.bam} \\
             --output={output.bam} \\
@@ -287,7 +293,7 @@ rule call_duplex_consensus:
         MODULES["java"]
     shell:
         """
-        fgbio CallDuplexConsensusReads \\
+        java -Xmx4g -Djava.io.tmpdir=/lscratch/$SLURM_JOB_ID -jar $FGBIO_JAR CallDuplexConsensusReads \\
             --input={input.bam} \\
             --output={output.ubam} \\
             --error-rate-pre-umi={params.error_rate_pre} \\
@@ -315,9 +321,7 @@ rule realign_consensus:
     output:
         bam = temp(f"{RESULTS}/bam/{{sample}}.consensus_aligned.bam")
     params:
-        mem = MEMORY,
         ref = REFERENCE
-    threads: THREADS
     log:
         f"{LOGS}/bam/{{sample}}.consensus_align.log"
     envmodules:
@@ -327,14 +331,14 @@ rule realign_consensus:
         MODULES["samtools"]
     shell:
         """
-        picard --java-options "-Xmx{params.mem}g" SamToFastq \\
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar SamToFastq \
             I={input.ubam} \\
             F=/dev/stdout \\
             INTERLEAVE=true \\
             QUIET=true \\
             2>>{log} | \\
-        bwa mem -p -t {threads} {params.ref} /dev/stdout 2>>{log} | \\
-        samtools sort -@ {threads} -o {output.bam} -
+        bwa mem -p -t $SLURM_CPUS_PER_TASK {params.ref} /dev/stdout 2>>{log} | \\
+        samtools sort -@ $SLURM_CPUS_PER_TASK -o {output.bam} -
         """
 
 # ---------------------------------------------------------------------------
@@ -389,7 +393,6 @@ rule merge_consensus_bam:
         no_rg_bam = temp(f"{RESULTS}/bam/{{sample}}.consensus_no_rg.bam"),
         no_rg_bai = temp(f"{RESULTS}/bam/{{sample}}.consensus_no_rg.bai")
     params:
-        mem = MEMORY,
         ref = REFERENCE
     log:
         f"{LOGS}/bam/{{sample}}.consensus_merge.log"
@@ -398,7 +401,7 @@ rule merge_consensus_bam:
         MODULES["java"]
     shell:
         """
-        picard --java-options "-Xmx{params.mem}g" MergeBamAlignment \\
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar MergeBamAlignment \\
             VALIDATION_STRINGENCY=SILENT \\
             UNMAPPED={input.ubam} \\
             ALIGNED={input.aligned} \\
@@ -424,7 +427,7 @@ rule merge_consensus_bam:
             ATTRIBUTES_TO_RETAIN=ce \\
             2>&1 | tee {log}
 
-        picard --java-options "-Xmx{params.mem}g" AddOrReplaceReadGroups \\
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \
             I={output.no_rg_bam} \\
             O={output.bam} \\
             RGID={wildcards.sample} \\
@@ -457,7 +460,6 @@ rule collect_hs_metrics_post:
     output:
         metrics = f"{RESULTS}/qc/{{sample}}.consensus_hs_metrics.txt"
     params:
-        mem = MEMORY,
         ref = REFERENCE,
         bait_intervals = config["bait_intervals"],
         target_intervals = config["target_intervals"],
@@ -469,7 +471,7 @@ rule collect_hs_metrics_post:
         MODULES["java"]
     shell:
         """
-        picard --java-options "-Xmx{params.mem}g" CollectHsMetrics \\
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar CollectHsMetrics \
             -I {input.bam} \\
             -R {params.ref} \\
             -O {output.metrics} \\
@@ -486,7 +488,7 @@ rule collect_hs_metrics_post:
 
 rule multiqc:
     input:
-        expand(f"{RESULTS}/qc/fastqc/{{sample}}.{{read}}_fastqc.zip",
+        expand(f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.zip",
                sample=SAMPLE_NAMES, read=["R1", "R2"]),
         expand(f"{RESULTS}/qc/{{sample}}.pre_consensus_hs_metrics.txt",
                sample=SAMPLE_NAMES),

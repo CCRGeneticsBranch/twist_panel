@@ -43,12 +43,6 @@ modules:
   fgbio:    "fgbio/2.0.2"
 
 # ---------------------------------------------------------------------------
-# Computational resources
-# ---------------------------------------------------------------------------
-threads:   8
-memory_gb: 4   # heap per tool (matches PDF: -Xmx4g)
-
-# ---------------------------------------------------------------------------
 # UMI configuration
 # Regex to extract UMI1 and UMI2 from the fastq header read name.
 # Default matches:  @...:GTCGT+CAGGA ...
