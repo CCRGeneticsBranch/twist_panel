@@ -15,7 +15,6 @@ samples: WORKDIR/config/samples.tsv
 # ---------------------------------------------------------------------------
 raw_data_dir: "/path/to/raw/fastqs"   # input fastq file directory
 results_dir:  WORKDIR/results        # output directory
-logs_dir:     WORKDIR/logs   # log file directory
 scriptsdir:    PIPELINE_HOME/workflow/scripts/
 
 # ---------------------------------------------------------------------------
@@ -77,6 +76,5 @@ min_reads: "2 1 1"
 # CollectHsMetrics  (PDF step 6)
 # Provide Picard interval_list files for your capture panel.
 # ---------------------------------------------------------------------------
-bait_intervals:   ""   # path to probe/bait interval_list
-target_intervals: ""   # path to target interval_list
-probe_file: ""       # path to probe BED file for per-target coverage
+bait_intervals:   "PIPELINE_HOME/resources/NCI_RhadoSeqFoc_TE.baits.interval_list"   # path to probe/bait interval_list
+target_intervals: "PIPELINE_HOME/resources/NCI_RhadoSeqFoc_TE.targets.interval_list"   # path to target interval_list

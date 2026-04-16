@@ -12,7 +12,6 @@ from pathlib import Path
 
 RAW_DATA  = config["raw_data_dir"]
 RESULTS   = config["results_dir"]
-LOGS      = config["logs_dir"]
 REFERENCE = config["reference_genome"]
 
 # Load samples
@@ -41,6 +40,7 @@ UMI_PATTERN     = config["umi_pattern"]
 # Per-tool module names/versions are looked up directly in each rule
 MODULES = config["modules"]
 
+localrules: multiqc
 
 # ---------------------------------------------------------------------------
 # Target rule
@@ -82,8 +82,6 @@ rule fastqc_raw:
         zip = f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.zip"
     params:
         outdir = f"{RESULTS}/qc/fastqc"
-    log:
-        f"{LOGS}/qc/{{sample}}_{{read}}_fastqc.log"
     envmodules:
         MODULES["fastqc"]
     shell:
@@ -94,7 +92,7 @@ rule fastqc_raw:
         inbase="${{inbase%.*}}"  # Remove .fastq
         
         # Run fastqc
-        fastqc -o {params.outdir} {input} 2>&1 | tee {log}
+        fastqc -o {params.outdir} {input}
         
         # Rename outputs to match expected naming
         mv {params.outdir}/${{inbase}}_fastqc.html {output.html}
@@ -102,7 +100,7 @@ rule fastqc_raw:
         """
 
 # ---------------------------------------------------------------------------
-# Steps 2 + 3 – Align raw fastqs directly with bwa mem
+# Step 2 – Align raw fastqs directly with bwa mem
 # ---------------------------------------------------------------------------
 
 rule align_raw_fastq:
@@ -113,20 +111,18 @@ rule align_raw_fastq:
         bam = temp(f"{RESULTS}/bam/{{sample}}.aligned.bam")
     params:
         ref = REFERENCE
-    log:
-        f"{LOGS}/bam/{{sample}}.align.log"
     envmodules:
         MODULES["bwa"],
         MODULES["samtools"]
     shell:
         """
-        bwa mem -t $SLURM_CPUS_PER_TASK {params.ref} {input.r1} {input.r2} 2>>{log} | \
-        samtools sort -@ $SLURM_CPUS_PER_TASK -o {output.bam} - 2>>{log}
+        bwa mem -t $SLURM_CPUS_PER_TASK {params.ref} {input.r1} {input.r2} | \
+        samtools sort -@ $SLURM_CPUS_PER_TASK -o {output.bam} -
         """
 
 
 # ---------------------------------------------------------------------------
-# Step 4 – Add ZA/ZB/RX tags by parsing UMIs from read names
+# Step 3 – Add ZA/ZB/RX tags by parsing UMIs from read names
 # ---------------------------------------------------------------------------
 
 rule add_umi_tags_from_read_name:
@@ -138,8 +134,6 @@ rule add_umi_tags_from_read_name:
     params:
         script = os.path.join(workflow.basedir, "scripts", "tag_umi_from_read_name.py"),
         umi_pattern = UMI_PATTERN
-    log:
-        f"{LOGS}/bam/{{sample}}.merge.log"
     envmodules:
         MODULES["python"],
         MODULES["samtools"],
@@ -152,8 +146,7 @@ rule add_umi_tags_from_read_name:
         python {params.script} \\
             --input-bam {input.bam} \\
             --output-bam ${{tmp_bam}} \\
-            --umi-pattern '{params.umi_pattern}' \\
-            2>&1 | tee {log}
+            --umi-pattern '{params.umi_pattern}'
 
         java -Xmx4g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \\
             I=${{tmp_bam}} \\
@@ -163,15 +156,14 @@ rule add_umi_tags_from_read_name:
             RGPL=Illumina \\
             RGSM={wildcards.sample} \\
             RGPU=Unit1 \\
-            CREATE_INDEX=false \\
-            2>&1 | tee -a {log}
+            CREATE_INDEX=false
 
-        samtools index {output.bam} {output.bai} 2>>{log}
+        samtools index {output.bam} {output.bai}
         rm -f "${{tmp_bam}}"
         """
 
 # ---------------------------------------------------------------------------
-# Step 8 – Picard CollectHsMetrics  (PDF step 6)
+# Step 4 – Picard CollectHsMetrics  (PDF step 6)
 # Coverage QC on pre-consensus alignments
 # ---------------------------------------------------------------------------
 
@@ -189,14 +181,12 @@ rule collect_hs_metrics:
     input:
         bam = f"{RESULTS}/bam/{{sample}}.merged.bam"
     output:
-        metrics = f"{RESULTS}/qc/{{sample}}.pre_consensus_hs_metrics.txt"
+        metrics = f"{RESULTS}/qc/hsmetrics/{{sample}}.pre_consensus_hs_metrics.txt",
+        per_target_coverage = f"{RESULTS}/qc/hsmetrics/{{sample}}.pre_consensus_per_target_coverage.txt"
     params:
         ref = REFERENCE,
         bait_intervals = config["bait_intervals"],
-        target_intervals = config["target_intervals"],
-        probe_file = config["probe_file"]
-    log:
-        f"{LOGS}/qc/{{sample}}.pre_consensus_hs_metrics.log"
+        target_intervals = config["target_intervals"]
     envmodules:
         MODULES["picard"],
         MODULES["java"]
@@ -208,8 +198,40 @@ rule collect_hs_metrics:
             -O {output.metrics} \\
             --BAIT_INTERVALS {params.bait_intervals} \\
             --TARGET_INTERVALS {params.target_intervals} \\
-            --PER_TARGET_COVERAGE {params.probe_file} \\
-            2>&1 | tee {log}
+            --PER_TARGET_COVERAGE {output.per_target_coverage}
+        """
+
+# ---------------------------------------------------------------------------
+# Step 5 – fgbio SetMateInformation
+# Ensures mate tags (MQ/MC) are present before GroupReadsByUmi --strategy=paired
+# ---------------------------------------------------------------------------
+
+rule set_mate_information:
+    input:
+        bam = f"{RESULTS}/bam/{{sample}}.merged.bam"
+    output:
+        bam = temp(f"{RESULTS}/bam/{{sample}}.merged.mate_fixed.bam"),
+        bai = temp(f"{RESULTS}/bam/{{sample}}.merged.mate_fixed.bai")
+    envmodules:
+        MODULES["fgbio"],
+        MODULES["java"],
+        MODULES["samtools"]
+    shell:
+        """
+        qname_bam="{RESULTS}/bam/{wildcards.sample}.merged.qname.bam"
+        mate_fixed_qname_bam="{RESULTS}/bam/{wildcards.sample}.merged.mate_fixed.qname.bam"
+
+        samtools sort -n -@ $SLURM_CPUS_PER_TASK -o ${{qname_bam}} {input.bam}
+
+        java -Xmx4g -Djava.io.tmpdir=/lscratch/$SLURM_JOB_ID -jar $FGBIO_JAR SetMateInformation \
+            --input ${{qname_bam}} \
+            --output ${{mate_fixed_qname_bam}} \
+            --allow-missing-mates true
+
+        samtools sort -@ $SLURM_CPUS_PER_TASK -o {output.bam} ${{mate_fixed_qname_bam}}
+        samtools index {output.bam} {output.bai}
+
+        rm -f "${{qname_bam}}" "${{mate_fixed_qname_bam}}"
         """
 
 # ---------------------------------------------------------------------------
@@ -230,16 +252,14 @@ rule group_reads_by_umi:
         --edits=1
     """
     input:
-        bam = f"{RESULTS}/bam/{{sample}}.merged.bam",
-        bai = f"{RESULTS}/bam/{{sample}}.merged.bai"
+        bam = f"{RESULTS}/bam/{{sample}}.merged.mate_fixed.bam",
+        bai = f"{RESULTS}/bam/{{sample}}.merged.mate_fixed.bai"
     output:
-        bam = f"{RESULTS}/bam/{{sample}}.grouped.bam",
+        bam = temp(f"{RESULTS}/bam/{{sample}}.grouped.bam"),
         hist = f"{RESULTS}/bam/{{sample}}.family_size_histogram.txt"
     params:
         min_mapq = config["min_map_quality"],
         edits = config["umi_edit_distance"]
-    log:
-        f"{LOGS}/bam/{{sample}}.group_by_umi.log"
     envmodules:
         MODULES["fgbio"],
         MODULES["java"]
@@ -252,8 +272,7 @@ rule group_reads_by_umi:
             --family-size-histogram={output.hist} \\
             --raw-tag=RX \\
             --min-map-q={params.min_mapq} \\
-            --edits={params.edits} \\
-            2>&1 | tee {log}
+            --edits={params.edits}
         """
 
 # ---------------------------------------------------------------------------
@@ -286,8 +305,6 @@ rule call_duplex_consensus:
     params:
         error_rate_pre = config["error_rate_pre_umi"],
         min_reads = config["min_reads"]
-    log:
-        f"{LOGS}/bam/{{sample}}.call_duplex.log"
     envmodules:
         MODULES["fgbio"],
         MODULES["java"]
@@ -299,8 +316,7 @@ rule call_duplex_consensus:
             --error-rate-pre-umi={params.error_rate_pre} \\
             --error-rate-post-umi=30 \\
             --min-input-base-quality=30	\\
-            --min-reads {params.min_reads} \\
-            2>&1 | tee {log}
+            --min-reads {params.min_reads}
         """
 
 # ---------------------------------------------------------------------------
@@ -322,8 +338,6 @@ rule realign_consensus:
         bam = temp(f"{RESULTS}/bam/{{sample}}.consensus_aligned.bam")
     params:
         ref = REFERENCE
-    log:
-        f"{LOGS}/bam/{{sample}}.consensus_align.log"
     envmodules:
         MODULES["picard"],
         MODULES["java"],
@@ -331,13 +345,14 @@ rule realign_consensus:
         MODULES["samtools"]
     shell:
         """
+        set -euo pipefail
+
         java -Xmx4g -jar $PICARDJARPATH/picard.jar SamToFastq \
             I={input.ubam} \\
             F=/dev/stdout \\
             INTERLEAVE=true \\
-            QUIET=true \\
-            2>>{log} | \\
-        bwa mem -p -t $SLURM_CPUS_PER_TASK {params.ref} /dev/stdout 2>>{log} | \\
+            QUIET=true | \\
+        bwa mem -p -t $SLURM_CPUS_PER_TASK {params.ref} - | \\
         samtools sort -@ $SLURM_CPUS_PER_TASK -o {output.bam} -
         """
 
@@ -394,8 +409,6 @@ rule merge_consensus_bam:
         no_rg_bai = temp(f"{RESULTS}/bam/{{sample}}.consensus_no_rg.bai")
     params:
         ref = REFERENCE
-    log:
-        f"{LOGS}/bam/{{sample}}.consensus_merge.log"
     envmodules:
         MODULES["picard"],
         MODULES["java"]
@@ -424,8 +437,7 @@ rule merge_consensus_bam:
             ATTRIBUTES_TO_RETAIN=cd \\
             ATTRIBUTES_TO_RETAIN=ae \\
             ATTRIBUTES_TO_RETAIN=be \\
-            ATTRIBUTES_TO_RETAIN=ce \\
-            2>&1 | tee {log}
+            ATTRIBUTES_TO_RETAIN=ce
 
         java -Xmx4g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \
             I={output.no_rg_bam} \\
@@ -435,8 +447,7 @@ rule merge_consensus_bam:
             RGPL=Illumina \\
             RGSM={wildcards.sample} \\
             RGPU=NA \\
-            CREATE_INDEX=true \\
-            2>&1 | tee -a {log}
+            CREATE_INDEX=true
         """
 
 # ---------------------------------------------------------------------------
@@ -458,14 +469,12 @@ rule collect_hs_metrics_post:
     input:
         bam = f"{RESULTS}/bam/{{sample}}.consensus_final.bam"
     output:
-        metrics = f"{RESULTS}/qc/{{sample}}.consensus_hs_metrics.txt"
+        metrics = f"{RESULTS}/qc/hsmetrics/{{sample}}.consensus_hs_metrics.txt",
+        per_target_coverage = f"{RESULTS}/qc/hsmetrics/{{sample}}.consensus_per_target_coverage.txt"
     params:
         ref = REFERENCE,
         bait_intervals = config["bait_intervals"],
-        target_intervals = config["target_intervals"],
-        probe_file = config["probe_file"]
-    log:
-        f"{LOGS}/qc/{{sample}}.consensus_hs_metrics.log"
+        target_intervals = config["target_intervals"]
     envmodules:
         MODULES["picard"],
         MODULES["java"]
@@ -477,8 +486,7 @@ rule collect_hs_metrics_post:
             -O {output.metrics} \\
             --BAIT_INTERVALS {params.bait_intervals} \\
             --TARGET_INTERVALS {params.target_intervals} \\
-            --PER_TARGET_COVERAGE {params.probe_file} \\
-            2>&1 | tee {log}
+            --PER_TARGET_COVERAGE {output.per_target_coverage}
         """
 
 # ---------------------------------------------------------------------------
@@ -490,21 +498,19 @@ rule multiqc:
     input:
         expand(f"{RESULTS}/qc/fastqc/{{sample}}_{{read}}_fastqc.zip",
                sample=SAMPLE_NAMES, read=["R1", "R2"]),
-        expand(f"{RESULTS}/qc/{{sample}}.pre_consensus_hs_metrics.txt",
+        expand(f"{RESULTS}/qc/hsmetrics/{{sample}}.pre_consensus_hs_metrics.txt",
                sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/qc/{{sample}}.consensus_hs_metrics.txt",
+        expand(f"{RESULTS}/qc/hsmetrics/{{sample}}.consensus_hs_metrics.txt",
                sample=SAMPLE_NAMES)
     output:
         f"{RESULTS}/qc/multiqc_report.html"
     params:
         indir = f"{RESULTS}/qc",
         outdir = f"{RESULTS}/qc"
-    log:
-        f"{LOGS}/qc/multiqc.log"
     envmodules:
         MODULES["multiqc"]
     shell:
-        "multiqc {params.indir} -o {params.outdir} -f --exclude fastqc 2>&1 | tee {log}"
+        "multiqc {params.indir} -o {params.outdir} -f --exclude fastqc"
 
 
 # ---------------------------------------------------------------------------
@@ -517,8 +523,6 @@ rule generate_summary_report:
         expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bam", sample=SAMPLE_NAMES)
     output:
         report = f"{RESULTS}/summary_report.txt"
-    log:
-        f"{LOGS}/summary.log"
     envmodules:
         MODULES["python"]
     script:

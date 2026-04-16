@@ -1,10 +1,23 @@
 # Cluster resources per rule
 __default__:
     gres: lscratch:500
-    mem: 16g
-    threads: 8
-    time: 00-04:00:00
+    mem: 2g
+    threads: 4
+    time: 00-01:00:00
     partition: norm
     name: "{rule}.{wildcards}"
     output: "logs/{rule}.${{SLURM_JOBID}}.%j.{wildcards}.out"
     error: "logs/{rule}.${{SLURM_JOBID}}.%j.{wildcards}.err"
+
+align_raw_fastq:
+    mem: 16g
+    time: 00-02:00:00
+    threads: 8
+
+set_mate_information:
+    mem: 8g
+    threads: 8
+
+group_reads_by_umi:
+    mem: 4g
+    threads: 8
