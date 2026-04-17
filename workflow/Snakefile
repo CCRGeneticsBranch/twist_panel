@@ -13,6 +13,7 @@ from pathlib import Path
 RAW_DATA  = config["raw_data_dir"]
 RESULTS   = config["results_dir"]
 REFERENCE = config["reference_genome"]
+BWA_REFERENCE = config["reference_bwa"]
 
 # Load samples
 samples_cfg = config["samples"]
@@ -56,18 +57,12 @@ rule all:
         expand(f"{RESULTS}/bam/{{sample}}.merged.bam", sample=SAMPLE_NAMES),
         expand(f"{RESULTS}/bam/{{sample}}.merged.bai", sample=SAMPLE_NAMES),
 
-        # Grouped-by-UMI BAM
-        expand(f"{RESULTS}/bam/{{sample}}.grouped.bam", sample=SAMPLE_NAMES),
-
         # Final consensus BAM (aligned + UMI tags retained)
-        expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bam",
-               sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bai",
-               sample=SAMPLE_NAMES),
-        
-        # MultiQC and summary report
-        f"{RESULTS}/qc/multiqc_report.html",
-        f"{RESULTS}/summary_report.txt"
+        expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bam",sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bai",sample=SAMPLE_NAMES),
+
+        # MultiQC report
+        f"{RESULTS}/qc/multiqc_report.html"
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +105,7 @@ rule align_raw_fastq:
     output:
         bam = temp(f"{RESULTS}/bam/{{sample}}.aligned.bam")
     params:
-        ref = REFERENCE
+        ref = BWA_REFERENCE
     envmodules:
         MODULES["bwa"],
         MODULES["samtools"]
@@ -235,9 +230,10 @@ rule set_mate_information:
         """
 
 # ---------------------------------------------------------------------------
-# Step 9 – fgbio GroupReadsByUmi  (PDF step 7)
+# Step 6 – fgbio GroupReadsByUmi  (PDF step 7)
 # Groups read pairs by mapped position + UMI into UMI families
-# Must use --strategy=paired for CallDuplexConsensusReads.
+# Must use --strategy=paired for CallDuplexConsensusReads
+# Adds MI tag
 # ---------------------------------------------------------------------------
 
 rule group_reads_by_umi:
@@ -276,7 +272,7 @@ rule group_reads_by_umi:
         """
 
 # ---------------------------------------------------------------------------
-# Step 10 – fgbio CallDuplexConsensusReads  (PDF step 8)
+# Step 7 – fgbio CallDuplexConsensusReads  (PDF step 8)
 # Assembles single-strand consensus reads, then combines
 # the two strands into a duplex consensus read.
 #
@@ -301,7 +297,7 @@ rule call_duplex_consensus:
     input:
         bam = f"{RESULTS}/bam/{{sample}}.grouped.bam"
     output:
-        ubam = f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam"
+        ubam = temp(f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam")
     params:
         error_rate_pre = config["error_rate_pre_umi"],
         min_reads = config["min_reads"]
@@ -320,8 +316,8 @@ rule call_duplex_consensus:
         """
 
 # ---------------------------------------------------------------------------
-# Steps 11 + 12 – Picard SamToFastq  →  bwa mem -p  (PDF step 9)
-# Realign consensus reads (same as steps 3+4)
+# Step 8 – Picard SamToFastq  →  bwa mem -p  (PDF step 9)
+# Realign consensus reads after duplex consensus calling
 # ---------------------------------------------------------------------------
 
 rule realign_consensus:
@@ -337,7 +333,7 @@ rule realign_consensus:
     output:
         bam = temp(f"{RESULTS}/bam/{{sample}}.consensus_aligned.bam")
     params:
-        ref = REFERENCE
+        ref = BWA_REFERENCE
     envmodules:
         MODULES["picard"],
         MODULES["java"],
@@ -357,7 +353,7 @@ rule realign_consensus:
         """
 
 # ---------------------------------------------------------------------------
-# Step 13 – Second Picard MergeBamAlignment  (PDF step 10)
+# Step 9 – Second Picard MergeBamAlignment  (PDF step 10)
 # Merges the re-aligned consensus BAM with the consensus uBAM to restore
 # duplex UMI tags (ZS, ZI, ZM, ZC, ZN, ...) needed for downstream tools.
 # ---------------------------------------------------------------------------
@@ -383,8 +379,8 @@ rule merge_consensus_bam:
         ATTRIBUTES_TO_RETAIN=ZM \\
         ATTRIBUTES_TO_RETAIN=ZC \\
         ATTRIBUTES_TO_RETAIN=ZN \\
-        ATTRIBUTES_TO_RETAIN=ad \\  
-        ATTRIBUTES_TO_RETAIN=bd \\ 
+        ATTRIBUTES_TO_RETAIN=ad \\
+        ATTRIBUTES_TO_RETAIN=bd \\
         ATTRIBUTES_TO_RETAIN=cd \\
         ATTRIBUTES_TO_RETAIN=ae \\
         ATTRIBUTES_TO_RETAIN=be \\
@@ -414,10 +410,27 @@ rule merge_consensus_bam:
         MODULES["java"]
     shell:
         """
+        set -euo pipefail
+
+        ubam_qname_bam="{RESULTS}/bam/{wildcards.sample}.consensus_unmapped.qname.bam"
+        aligned_qname_bam="{RESULTS}/bam/{wildcards.sample}.consensus_aligned.qname.bam"
+
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar SortSam \
+            I={input.ubam} \
+            O=${{ubam_qname_bam}} \
+            SORT_ORDER=queryname \
+            CREATE_INDEX=false
+
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar SortSam \
+            I={input.aligned} \
+            O=${{aligned_qname_bam}} \
+            SORT_ORDER=queryname \
+            CREATE_INDEX=false
+
         java -Xmx4g -jar $PICARDJARPATH/picard.jar MergeBamAlignment \\
             VALIDATION_STRINGENCY=SILENT \\
-            UNMAPPED={input.ubam} \\
-            ALIGNED={input.aligned} \\
+            UNMAPPED=${{ubam_qname_bam}} \\
+            ALIGNED=${{aligned_qname_bam}} \\
             O={output.no_rg_bam} \\
             R={params.ref} \\
             CLIP_ADAPTERS=false \\
@@ -432,14 +445,14 @@ rule merge_consensus_bam:
             ATTRIBUTES_TO_RETAIN=ZM \\
             ATTRIBUTES_TO_RETAIN=ZC \\
             ATTRIBUTES_TO_RETAIN=ZN \\
-            ATTRIBUTES_TO_RETAIN=ad \\  
-            ATTRIBUTES_TO_RETAIN=bd \\ 
+            ATTRIBUTES_TO_RETAIN=ad \\
+            ATTRIBUTES_TO_RETAIN=bd \\
             ATTRIBUTES_TO_RETAIN=cd \\
             ATTRIBUTES_TO_RETAIN=ae \\
             ATTRIBUTES_TO_RETAIN=be \\
             ATTRIBUTES_TO_RETAIN=ce
 
-        java -Xmx4g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \
+        java -Xmx4g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \\
             I={output.no_rg_bam} \\
             O={output.bam} \\
             RGID={wildcards.sample} \\
@@ -448,10 +461,12 @@ rule merge_consensus_bam:
             RGSM={wildcards.sample} \\
             RGPU=NA \\
             CREATE_INDEX=true
+
+        rm -f "${{ubam_qname_bam}}" "${{aligned_qname_bam}}"
         """
 
 # ---------------------------------------------------------------------------
-# Step 14 – Picard CollectHsMetrics  (PDF step 10a)
+# Step 10 – Picard CollectHsMetrics  (PDF step 10a)
 # Post-consensus QC: fold-80, coverage, off-target rates.
 # ---------------------------------------------------------------------------
 
@@ -491,7 +506,7 @@ rule collect_hs_metrics_post:
 
 # ---------------------------------------------------------------------------
 # MultiQC
-# Aggregate all QC reports (FastQC + HsMetrics)
+# Aggregate all QC reports (FastQC + HsMetrics + UMI family size histograms)
 # ---------------------------------------------------------------------------
 
 rule multiqc:
@@ -501,29 +516,15 @@ rule multiqc:
         expand(f"{RESULTS}/qc/hsmetrics/{{sample}}.pre_consensus_hs_metrics.txt",
                sample=SAMPLE_NAMES),
         expand(f"{RESULTS}/qc/hsmetrics/{{sample}}.consensus_hs_metrics.txt",
+               sample=SAMPLE_NAMES),
+        expand(f"{RESULTS}/bam/{{sample}}.family_size_histogram.txt",
                sample=SAMPLE_NAMES)
     output:
         f"{RESULTS}/qc/multiqc_report.html"
     params:
-        indir = f"{RESULTS}/qc",
+        indir = RESULTS,
         outdir = f"{RESULTS}/qc"
     envmodules:
         MODULES["multiqc"]
     shell:
-        "multiqc {params.indir} -o {params.outdir} -f --exclude fastqc"
-
-
-# ---------------------------------------------------------------------------
-# Summary report
-# ---------------------------------------------------------------------------
-
-rule generate_summary_report:
-    input:
-        expand(f"{RESULTS}/bam/{{sample}}.family_size_histogram.txt",   sample=SAMPLE_NAMES),
-        expand(f"{RESULTS}/bam/{{sample}}.consensus_final.bam", sample=SAMPLE_NAMES)
-    output:
-        report = f"{RESULTS}/summary_report.txt"
-    envmodules:
-        MODULES["python"]
-    script:
-        "scripts/generate_summary.py"
+        "multiqc {params.indir} -o {params.outdir} -f --fn_as_s_name"

@@ -1,26 +1,25 @@
 # Twist Bioscience UMI Panel Pipeline Configuration
-# Based on: DOC-001337 TechNote - Processing Sequencing Data Utilizing UMI
 
 # ---------------------------------------------------------------------------
 # Samples
 # 
 # Samples must be provided via TSV (columns: Sample, R1, R2).
 # R1/R2 values are filenames within raw_data_dir (not full paths).
-# The TSV path may be absolute or relative to the run directory.
 # ---------------------------------------------------------------------------
 samples: WORKDIR/config/samples.tsv
 
 # ---------------------------------------------------------------------------
-# Directories (use absolute paths)
+# Directories
 # ---------------------------------------------------------------------------
-raw_data_dir: "/path/to/raw/fastqs"   # input fastq file directory
+raw_data_dir: "/path/to/raw/fastqs"   # input fastq file directory - absolute path
 results_dir:  WORKDIR/results        # output directory
-scriptsdir:    PIPELINE_HOME/workflow/scripts/
+scriptsdir:    PIPELINE_HOME/workflow/scripts/ # scripts directory
 
 # ---------------------------------------------------------------------------
-# Reference genome  (must be BWA-indexed)
+# Reference genome
 # ---------------------------------------------------------------------------
-reference_genome: "/fdb/bwa/indexes/hg38.fa"
+reference_genome: "/fdb/genomebrowser/fasta/hg38.fa"
+reference_bwa: "/fdb/bwa/indexes/hg38.fa"
 
 # ---------------------------------------------------------------------------
 # HPC module loading
@@ -48,14 +47,6 @@ modules:
 #                         ^^^^^  ^^^^^  (5bp each)
 # ---------------------------------------------------------------------------
 umi_pattern: "(?P<umi_1>[ACGTN]+)\\+(?P<umi_2>[ACGTN]+)"
-
-# ---------------------------------------------------------------------------
-# fgbio read structure for ExtractUmisFromBam.
-# Standard Twist inline libraries (5bp UMI + 2bp skip + template): "5M2S+T"
-# Header-extracted UMIs prepended inline (no skip bases): "5M+T"
-# Adjust if your UMIs are a different length or if skip bases were preserved.
-# ---------------------------------------------------------------------------
-umi_read_structure: "5M+T"
 
 # ---------------------------------------------------------------------------
 # fgbio GroupReadsByUmi parameters  (PDF step 7)

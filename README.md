@@ -1,146 +1,137 @@
 # Twist Bioscience UMI Panel Preprocessing Pipeline
 
-A comprehensive Snakemake pipeline for preprocessing paired-end sequencing data with UMIs embedded in fastq headers, following the Twist Bioscience technical note (DOC-001337).
+A Snakemake pipeline for preprocessing paired-end sequencing data generated with the custom TWIST panel NCI_RhadoSeqFoc_TE 
+Generally follows the Twist Bioscience technical note (DOC-001337 TechNote - Processing Sequencing Data Utilizing UMI), 
+except UMIs are extracted into fastq headers during demultiplexing
 
 ## Overview
 
 This pipeline processes raw sequencing reads through the following steps:
 
-1. **UMI Extraction**: Extracts UMI sequences from fastq headers
-2. **Quality Control**: FastQC and MultiQC for read quality assessment
-3. **Adapter Trimming**: Removes Illumina adapters and low-quality bases using Trimmomatic
-4. **Reference Alignment**: Maps reads to reference genome using BWA-MEM
-5. **UMI Deduplication**: Removes PCR duplicates based on UMI information using umi_tools
-6. **Summary Report**: Generates comprehensive pipeline statistics
+1. **FastQC**: Runs FastQC on raw R1 and R2 reads
+2. **Primary Alignment**: Aligns raw fastqs with BWA-MEM
+3. **UMI Tagging**: Copies UMI values from read names into ZA/ZB/RX BAM tags
+4. **Pre-consensus QC**: Runs Picard CollectHsMetrics on merged BAMs
+5. **Mate Fixing**: Runs fgbio SetMateInformation for paired-family grouping
+6. **UMI Family Grouping**: Runs fgbio GroupReadsByUmi and writes family size histograms
+7. **Consensus Calling**: Runs fgbio CallDuplexConsensusReads
+8. **Consensus Realignment**: Converts to FASTQ and re-aligns consensus reads
+9. **Consensus Merge**: Runs Picard MergeBamAlignment and restores consensus tags
+10. **Post-consensus QC**: Runs Picard CollectHsMetrics on final consensus BAMs
+11. **MultiQC**: Aggregates FastQC, both HsMetrics sets, and family size histograms
 
 ## Quick Start
 
+Run the pipeline with [run_twist.sh](run_twist.sh) using `--runmode` and `--workdir`.
+
 ### 1. Initialize a run directory
 
-Keep pipeline code in one fixed location and create a separate run folder for each analysis:
+This creates the work directory and copies the template config file and sample sheet.
 
 ```bash
-PIPELINE=/data/khanlab3/gb_omics/projects/khan/ccrgb_106/scripts/twist_panel
-RUN_DIR=/path/to/my_run
-
-$PIPELINE/init_run.sh "$RUN_DIR"
+bash run_twist.sh --runmode=init --workdir=/path/to/my_run
 ```
 
-This creates editable run-local files:
-- `config.yaml`
-- `samples.tsv`
+Then edit:
+- `/path/to/my_run/config/config.yaml`
+- `/path/to/my_run/config/samples.tsv`
 
-### 2. Edit run-local config and samples
+### 2. Configure sample sheet and paths
 
-Update `config.yaml` with absolute paths for your environment and edit `samples.tsv` with your sample sheet.
+Sample metadata must be TSV with columns `Sample`, `R1`, and `R2`.
+`R1`/`R2` are filenames relative to `raw_data_dir`.
 
-### 2. Prepare Input Data
+Example `samples.tsv`:
 
-Your fastq files stay in their existing location on the filesystem. Set
-`raw_data_dir` to that directory in `config/config.yaml`.
-
-### 3. Configure Pipeline
-
-Sample metadata is always loaded from a CSV file.
-
-```text
-# metadata/samples.csv
-sample,R1,R2
-sample1,sample1_R1.fastq.gz,sample1_R2.fastq.gz
-sample2,sample2_R1.fastq.gz,sample2_R2.fastq.gz
+```tsv
+Sample	R1	R2
+sample1	sample1_R1.fastq.gz	sample1_R2.fastq.gz
+sample2	sample2_R1.fastq.gz	sample2_R2.fastq.gz
 ```
 
-Then in `config/config.yaml`:
+Set raw data directory in `config.yaml`:
+
 ```yaml
-samples: "metadata/samples.csv"
 raw_data_dir: "/path/to/raw/fastqs"
-results_dir:  "/path/to/output"
-reference_genome: "/fdb/bwa/indexes/hg38.fa"
 ```
 
-### 4. Use HPC Reference Genome
+### 3. Dry run
 
-The reference is pre-indexed on the HPC filesystem. Set `reference_genome` in `config/config.yaml` to that shared path (current default: `/fdb/bwa/indexes/hg38.fa`).
-
-Optional check:
+Validate the rules without executing jobs.
 
 ```bash
-ls -lh /fdb/bwa/indexes/hg38.fa*
+bash run_twist.sh --runmode=dryrun --workdir=/path/to/my_run
 ```
 
-### 5. Launch pipeline
+### 4. Run on SLURM
 
-Use the run command to execute Snakemake with the run-local `config.yaml`:
+Submit the pipeline to SLURM using the wrapper defaults and `config/biowulf.yaml`.
 
 ```bash
-# Dry run
-$PIPELINE/run_pipeline.sh "$RUN_DIR" -n
-
-# Typical cluster run
-$PIPELINE/run_pipeline.sh "$RUN_DIR" --profile "$PIPELINE/config/slurm_profile.yaml"
-
-# Resume incomplete jobs
-$PIPELINE/run_pipeline.sh "$RUN_DIR" --profile "$PIPELINE/config/slurm_profile.yaml" --rerun-incomplete
+bash run_twist.sh --runmode=run --workdir=/path/to/my_run
 ```
 
-### SLURM profile
+### 5. Optional run modes
 
-Edit `config/slurm_profile.yaml` to match your cluster before the first run:
+```bash
+# Run interactively on an allocated node
+bash run_twist.sh --runmode=runlocal --workdir=/path/to/my_run
 
-```yaml
-jobs: 100                    # max simultaneous SLURM jobs
-use-envmodules: true
+# Unlock a stale Snakemake lock
+bash run_twist.sh --runmode=unlock --workdir=/path/to/my_run
 
-default-resources:
-  slurm_account: "your_account"   # ← change this
-  slurm_partition: "norm"         # ← change this
-  runtime: 240                    # minutes
-  mem_mb: 8000
-  cpus_per_task: 8
+# Recreate workdir from scratch
+bash run_twist.sh --runmode=reset --workdir=/path/to/my_run
 ```
 
-Per-rule overrides for resource-intensive steps are already set in
-`config/slurm_profile.yaml` — adjust as needed.
+### 6. Monitor run outputs
 
-### 6. View Results
+Key files written in the work directory:
+- `snakemake.log`
+- `snakemake.stats`
+- `runinfo.yaml`
+- `submit_script.sbatch`
+
+### 7. View Results
 
 ```
 results/
-├── 01_qc/
-│   ├── fastqc/           # FastQC reports
-│   └── multiqc_report.html
-├── 02_umi_extracted/
-│   ├── sample1_R1.fastq.gz
-│   ├── sample1_R2.fastq.gz
-│   └── sample1_umi_stats.txt
-├── 03_trimmed/
-│   ├── sample1_R1.trimmed.fastq.gz
-│   ├── sample1_R2.trimmed.fastq.gz
-│   └── sample1.trimming_report.txt
-├── 04_aligned/
-│   ├── sample1.bam
-│   └── sample1.bam.bai
-├── 05_dedup/
-│   ├── sample1.dedup.bam
-│   ├── sample1.dedup.bam.bai
-│   └── sample1_dedup_stats.txt
-└── summary_report.txt
+├── bam/
+│   ├── sample1.merged.bam
+│   ├── sample1.family_size_histogram.txt
+│   └── sample1.consensus_final.bam
+└── qc/
+    ├── fastqc/
+    ├── hsmetrics/
+    │   ├── sample1.pre_consensus_hs_metrics.txt
+    │   └── sample1.consensus_hs_metrics.txt
+    ├── multiqc_report.html
+    └── multiqc_data/
 ```
 
 ## Input Data Format
 
 ### Expected Fastq Header Format
 
-The pipeline expects fastq files with UMIs embedded in the sequence header:
+Standard Twist libraries follow the format "5M2S+T" (5bp UMI + 2bp skip + template), 
+and the protocol assumes UMI handling through fgbio read structures. 
+But this pipeline starts from fastq files with UMIs embedded in the sequence header:
 
 ```
 @VH01088:45:AAJ2V5CM5:1:1101:60230:1000:GTCGT+CAGGA 1:N:0:AATGAGGTAA+GTATAACCTG
 ```
 
-Breaking this down:
+Where:
 - `VH01088:45:AAJ2V5CM5:1:1101:60230:1000` - Instrument and position info
-- `GTCGT+CAGGA` - **UMI (this is extracted)**
-- `1:N:0:AATGAGGTAA+GTATAACCTG` - Standard Illumina quality flags
+- `GTCGT+CAGGA` - Extracted UMIs
+- `1:N:0:AATGAGGTAA+GTATAACCTG` - Standard Illumina quality flags and barcodes
+
+The custom tagging step parses UMI1 and UMI2 from read names and writes:
+- ZA:Z:UMI1
+- ZB:Z:UMI2
+- RX:Z:UMI1-UMI2
+
+These tags are then used by fgbio GroupReadsByUmi and downstream duplex consensus steps.
 
 ### UMI Pattern
 
@@ -156,94 +147,43 @@ umi_pattern: "(?P<umi_1>.{6})\\+(?P<umi_2>.{6})"  # For 6bp+6bp
 
 ## Pipeline Customization
 
-### Modify Trimming Parameters
+### Adjust UMI Grouping
 
 Edit `config.yaml`:
 
 ```yaml
-trimming:
-  steps:
-    - "ILLUMINACLIP:TruSeq3-PE.fa:2:30:10:2:True"
-    - "LEADING:20"
-    - "TRAILING:20"
-    - "SLIDINGWINDOW:4:20"
-    - "MINLEN:50"
+min_map_quality: 10
+umi_edit_distance: 1
 ```
 
-### Change Computational Resources
+### Tune Consensus Calling
 
 ```yaml
-threads: 16          # Cores for parallel jobs
-memory_gb: 32        # Memory allocation
+error_rate_pre_umi: 45
+min_reads: "2 1 1"
 ```
-
-### Enable Additional Analyses
-
-```yaml
-analyses:
-  fastqc: true
-  multiqc: true
-  variant_calling: false    # Set to true for SNP calling
-  coverage_analysis: false  # Set to true for coverage depth
-```
-
-### Adjust UMI Deduplication
-
-```yaml
-deduplication:
-  method: "directional"  # directional, percentile, or cluster
-  edit_distance: 1       # Max edit distance for UMI grouping
-  per_base: false        # Per-base vs per-position UMI grouping
-  subset: 0              # Use only first N reads (0 = all)
-```
-
-## Key Differences from Standard Twist Protocol
-
-The standard Twist protocol assumes UMIs are in separate read files (e.g., R1 contains UMI, R2 contains sample sequence).
-
-Standard Twist library prep places UMI bases inline at the start of each read
-(read structure 5M2S+T: 5 UMI bases, 2 skip bases, then template).
-This data has UMIs already extracted into the read name header field:
-  @VH01088:45:AAJ2V5CM5:1:1101:60230:1000:GTCGT+CAGGA 1:N:0:...
-                                            ^^^^^  ^^^^^
-                                            UMI1   UMI2
-
-The custom pre-processing step (rule extract_umi_from_header) reads each
-UMI pair from the header and prepends UMI1 to R1, UMI2 to R2, producing
-fastqs with inline UMI prefixes compatible with the standard Twist pipeline.
-Read structure is set to 5M+T (no skip bases, since they are not present in
-the header-extracted UMIs). Update umi_read_structure in config.yaml if your
-data does carry skip bases.
-
-This pipeline is adapted for:
-- **UMIs in headers**: Extracts from the fastq header instead of separate files
-- **UMI prepending**: Attaches UMI to read sequence for downstream umi_tools compatibility
-- **Integrated workflow**: All steps (extraction → QC → alignment → dedup) in one pipeline
 
 ## Output Description
 
-### 02_umi_extracted/
-- `*_R1.fastq.gz`, `*_R2.fastq.gz`: Fastqs with UMI prepended and header annotated
-- `*_umi_stats.txt`: UMI extraction statistics
+### bam/
+- `*.merged.bam`, `*.merged.bai`: Primary aligned BAMs with UMI tags
+- `*.family_size_histogram.txt`: Family size histograms from GroupReadsByUmi
+- `*.consensus_final.bam`, `*.consensus_final.bai`: Final consensus alignments
 
-### 03_trimmed/
-- `*.trimmed.fastq.gz`: Quality and adapter-trimmed reads
-- `*.trimming_report.txt`: Trimmomatic statistics
+### qc/fastqc/
+- `*_fastqc.html`, `*_fastqc.zip`: FastQC reports for raw reads
 
-### 04_aligned/
-- `*.bam`: Aligned reads in coordinate-sorted BAM format
-- `*.bam.bai`: BAM index files
+### qc/hsmetrics/
+- `*.pre_consensus_hs_metrics.txt`: Pre-consensus Picard HsMetrics
+- `*.consensus_hs_metrics.txt`: Post-consensus Picard HsMetrics
 
-### 05_dedup/
-- `*.dedup.bam`: UMI-deduplicated reads
-- `*_dedup_stats.txt`: UMI deduplication statistics
-
-### summary_report.txt
-- Comprehensive pipeline statistics and QC metrics
+### qc/
+- `multiqc_report.html`: Aggregated report across FastQC, both HsMetrics sets, and family-size histograms
+- `multiqc_data/`: Parsed data tables used to build the report
 
 ## Troubleshooting
 
-### 1. UMI Extraction Failing
+### 1. UMI Tagging Failing
 
 Check your UMI pattern in the fastq header. Verify with:
 ```bash
@@ -255,8 +195,8 @@ Update `umi_pattern` in `config.yaml` if needed.
 ### 2. Alignment Issues
 
 Ensure:
-- `reference_genome` points to the shared HPC FASTA path
-- BWA index sidecar files exist at the same prefix
+- `reference_genome` and `reference_bwa` point to shared HPC FASTA paths
+- BWA index sidecar files and dictionary exist at the same prefix
 - `raw_data_dir` points to the directory containing your fastq files
 
 ```bash
@@ -269,19 +209,7 @@ ls -lh /path/to/raw/fastqs/
 
 ### 3. Memory Issues
 
-Increase `mem_mb` for the affected rule in `config/slurm_profile.yaml`:
-
-```yaml
-set-resources:
-  merge_bam_alignment:
-    mem_mb: 32000
-```
-
-Or raise the Java heap globally:
-
-```yaml
-memory_gb: 8   # in config/config.yaml
-```
+Increase `mem` for the affected rule in `config/biowulf.yaml`:
 
 ### 4. Module Loading Issues
 
@@ -299,26 +227,23 @@ The pipeline uses:
 - **snakemake** ≥ 7.0
 - **FastQC** 0.11.9
 - **MultiQC** 1.12
-- **Trimmomatic** (bundled)
 - **BWA** 0.7.17
 - **SAMtools** 1.15
-- **umi_tools** 1.1.2
+- **Picard** (module-provided)
+- **fgbio** (module-provided)
 
 Update module versions in `config/config.yaml` under `modules` if needed.
 
 ## References
 
 - Twist Bioscience: [DOC-001337 - Processing Sequencing Data Utilizing UMI](https://www.twistbioscience.com/sites/default/files/resources/2023-03/DOC-001337_TechNote-ProcessingSequencingDataUtilizingUMI-REV1-singles.pdf)
-- umi_tools: [Documentation](https://umi-tools.readthedocs.io/)
-- Snakemake: [Documentation](https://snakemake.readthedocs.io/)
+- fgbio: [Documentation](https://fulcrumgenomics.github.io/fgbio/)
 
 ## Support
 
 For issues or questions, check:
 1. `<results_dir>/logs/` directory for detailed error messages
 2. The tool-specific documentation
-3. The `summary_report.txt` for pipeline statistics
+3. The MultiQC report and `multiqc_data/` tables for pipeline QC summaries
 
 ## License
-
-This pipeline follows the same practices as the Twist Bioscience technical documentation.

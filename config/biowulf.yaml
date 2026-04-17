@@ -21,3 +21,11 @@ set_mate_information:
 group_reads_by_umi:
     mem: 4g
     threads: 8
+
+realign_consensus:
+    mem: 12g
+    threads: 8
+
+merge_consensus_bam:
+    mem: 8g
+    threads: 8
