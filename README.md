@@ -140,14 +140,12 @@ Edit `config.yaml`:
 
 ```yaml
 min_map_quality: 10
-umi_edit_distance: 1
 ```
 
 ### Tune Consensus Calling
 
 ```yaml
-error_rate_pre_umi: 45
-min_reads: "2 1 1"
+min_input_base_quality: 30
 ```
 
 ## Output Description

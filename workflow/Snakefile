@@ -254,8 +254,7 @@ rule group_reads_by_umi:
         bam = temp(f"{RESULTS}/bam/{{sample}}.grouped.bam"),
         hist = f"{RESULTS}/bam/{{sample}}.family_size_histogram.txt"
     params:
-        min_mapq = config["min_map_quality"],
-        edits = config["umi_edit_distance"]
+        min_mapq = config["min_map_quality"]
     envmodules:
         MODULES["fgbio"],
         MODULES["java"]
@@ -268,7 +267,7 @@ rule group_reads_by_umi:
             --family-size-histogram={output.hist} \\
             --raw-tag=RX \\
             --min-map-q={params.min_mapq} \\
-            --edits={params.edits}
+            --edits=1
         """
 
 # ---------------------------------------------------------------------------
@@ -297,10 +296,10 @@ rule call_duplex_consensus:
     input:
         bam = f"{RESULTS}/bam/{{sample}}.grouped.bam"
     output:
-        ubam = temp(f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam")
+        ubam = temp(f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam"),
+        stats = f"{RESULTS}/bam/{{sample}}.consensus_calling_stats.txt"
     params:
-        error_rate_pre = config["error_rate_pre_umi"],
-        min_reads = config["min_reads"]
+        min_input_base_quality = config["min_input_base_quality"]
     envmodules:
         MODULES["fgbio"],
         MODULES["java"]
@@ -309,10 +308,11 @@ rule call_duplex_consensus:
         java -Xmx4g -Djava.io.tmpdir=/lscratch/$SLURM_JOB_ID -jar $FGBIO_JAR CallDuplexConsensusReads \\
             --input={input.bam} \\
             --output={output.ubam} \\
-            --error-rate-pre-umi={params.error_rate_pre} \\
+            --stats={output.stats} \\
+            --error-rate-pre-umi=45 \\
             --error-rate-post-umi=30 \\
-            --min-input-base-quality=30	\\
-            --min-reads {params.min_reads}
+            --min-input-base-quality={params.min_input_base_quality}	\\
+            --min-reads 2 1 1
         """
 
 # ---------------------------------------------------------------------------

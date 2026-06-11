@@ -50,18 +50,15 @@ umi_pattern: "(?P<umi_1>[ACGTN]+)\\+(?P<umi_2>[ACGTN]+)"
 
 # ---------------------------------------------------------------------------
 # fgbio GroupReadsByUmi parameters  (PDF step 7)
+# Set minimum mapping quality
 # ---------------------------------------------------------------------------
 min_map_quality: 10
-umi_edit_distance: 1
 
 # ---------------------------------------------------------------------------
 # fgbio CallDuplexConsensusReads parameters  (PDF step 8)
-# --min-reads: "duplex_min first_strand_min second_strand_min"
-# Twist recommends 2 1 1: duplex consensus requires ≥2 reads total,
-# ≥1 from the top strand and ≥1 from the bottom strand.
+# Set minimum base quality for consensus input
 # ---------------------------------------------------------------------------
-error_rate_pre_umi: 45 
-min_reads: "2 1 1"
+min_input_base_quality: 30
 
 # ---------------------------------------------------------------------------
 # CollectHsMetrics  (PDF step 6)
