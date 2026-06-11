@@ -1,0 +1,52 @@
+[+] Loading java 18.0.1.1  ... 
+[+] Loading picard  3.4.0 
+[-] Unloading java 18.0.1.1  ... 
+[+] Loading java 17.0.14.7  ... 
+
+The following have been reloaded with a version change:
+  1) java/18 => java/jdk-17.0.14.7
+
+INFO	2026-04-15 15:59:30	BedToIntervalList	
+
+********** NOTE: Picard's command line syntax is changing.
+**********
+********** For more information, please see:
+********** 
+https://github.com/broadinstitute/picard/wiki/Command-Line-Syntax-Transition-For-Users-(Pre-Transition)
+**********
+********** The command line looks like this in the new syntax:
+**********
+**********    BedToIntervalList -I /data/khanlab3/gb_omics/projects/khan/ccrgb_106/raw/NCI_RhadoSeqFoc_TE-95039494_hg38/Probes_merged_ok_shareable_NCI_RhadoSeqFoc_TE-95039494_hg38_251209142544.bed -O /data/khanlab3/gb_omics/projects/khan/ccrgb_106/analysis/interval_files//NCI_RhadoSeqFoc_TE.baits.interval_list -SD /fdb/genomebrowser/fasta/hg38.dict
+**********
+
+
+15:59:30.075 WARN  LegacyCommandLineArgumentParser - Hidden annotation is not honored for --DROP_MISSING_CONTIGS
+15:59:30.116 INFO  NativeLibraryLoader - Loading libgkl_compression.so from jar:file:/usr/local/apps/picard/3.4.0/picard.jar!/com/intel/gkl/native/libgkl_compression.so
+[Wed Apr 15 15:59:30 EDT 2026] BedToIntervalList INPUT=/data/khanlab3/gb_omics/projects/khan/ccrgb_106/raw/NCI_RhadoSeqFoc_TE-95039494_hg38/Probes_merged_ok_shareable_NCI_RhadoSeqFoc_TE-95039494_hg38_251209142544.bed SEQUENCE_DICTIONARY=/fdb/genomebrowser/fasta/hg38.dict OUTPUT=/data/khanlab3/gb_omics/projects/khan/ccrgb_106/analysis/interval_files/NCI_RhadoSeqFoc_TE.baits.interval_list    SORT=true UNIQUE=false DROP_MISSING_CONTIGS=false KEEP_LENGTH_ZERO_INTERVALS=false VERBOSITY=INFO QUIET=false VALIDATION_STRINGENCY=STRICT COMPRESSION_LEVEL=5 MAX_RECORDS_IN_RAM=500000 CREATE_INDEX=false CREATE_MD5_FILE=false USE_JDK_DEFLATER=false USE_JDK_INFLATER=false
+[Wed Apr 15 15:59:30 EDT 2026] Executing as pehrssonec@cn0013 on Linux 4.18.0-425.19.3a.el8.x86_64 amd64; OpenJDK 64-Bit Server VM 17.0.14+7; Deflater: Intel; Inflater: Intel; Provider GCS is available; Picard version: 3.4.0
+INFO	2026-04-15 15:59:30	BedToIntervalList	No input regions had length zero, so none were skipped.
+INFO	2026-04-15 15:59:30	BedToIntervalList	Wrote 478 intervals spanning a total of 295266 bases
+[Wed Apr 15 15:59:30 EDT 2026] picard.util.BedToIntervalList done. Elapsed time: 0.01 minutes.
+Runtime.totalMemory()=71303168
+INFO	2026-04-15 15:59:31	BedToIntervalList	
+
+********** NOTE: Picard's command line syntax is changing.
+**********
+********** For more information, please see:
+********** 
+https://github.com/broadinstitute/picard/wiki/Command-Line-Syntax-Transition-For-Users-(Pre-Transition)
+**********
+********** The command line looks like this in the new syntax:
+**********
+**********    BedToIntervalList -I /data/khanlab3/gb_omics/projects/khan/ccrgb_106/raw/NCI_RhadoSeqFoc_TE-95039494_hg38/All_target_regions_NCI_RhadoSeqFoc_TE-95039494_hg38_251209142544.bed -O /data/khanlab3/gb_omics/projects/khan/ccrgb_106/analysis/interval_files//NCI_RhadoSeqFoc_TE.targets.interval_list -SD /fdb/genomebrowser/fasta/hg38.dict
+**********
+
+
+15:59:31.235 WARN  LegacyCommandLineArgumentParser - Hidden annotation is not honored for --DROP_MISSING_CONTIGS
+15:59:31.268 INFO  NativeLibraryLoader - Loading libgkl_compression.so from jar:file:/usr/local/apps/picard/3.4.0/picard.jar!/com/intel/gkl/native/libgkl_compression.so
+[Wed Apr 15 15:59:31 EDT 2026] BedToIntervalList INPUT=/data/khanlab3/gb_omics/projects/khan/ccrgb_106/raw/NCI_RhadoSeqFoc_TE-95039494_hg38/All_target_regions_NCI_RhadoSeqFoc_TE-95039494_hg38_251209142544.bed SEQUENCE_DICTIONARY=/fdb/genomebrowser/fasta/hg38.dict OUTPUT=/data/khanlab3/gb_omics/projects/khan/ccrgb_106/analysis/interval_files/NCI_RhadoSeqFoc_TE.targets.interval_list    SORT=true UNIQUE=false DROP_MISSING_CONTIGS=false KEEP_LENGTH_ZERO_INTERVALS=false VERBOSITY=INFO QUIET=false VALIDATION_STRINGENCY=STRICT COMPRESSION_LEVEL=5 MAX_RECORDS_IN_RAM=500000 CREATE_INDEX=false CREATE_MD5_FILE=false USE_JDK_DEFLATER=false USE_JDK_INFLATER=false
+[Wed Apr 15 15:59:31 EDT 2026] Executing as pehrssonec@cn0013 on Linux 4.18.0-425.19.3a.el8.x86_64 amd64; OpenJDK 64-Bit Server VM 17.0.14+7; Deflater: Intel; Inflater: Intel; Provider GCS is available; Picard version: 3.4.0
+INFO	2026-04-15 15:59:31	BedToIntervalList	No input regions had length zero, so none were skipped.
+INFO	2026-04-15 15:59:31	BedToIntervalList	Wrote 992 intervals spanning a total of 537010 bases
+[Wed Apr 15 15:59:31 EDT 2026] picard.util.BedToIntervalList done. Elapsed time: 0.01 minutes.
+Runtime.totalMemory()=71303168
