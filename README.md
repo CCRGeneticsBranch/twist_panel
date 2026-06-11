@@ -1,8 +1,8 @@
-# Twist Bioscience UMI Panel Preprocessing Pipeline
+# Twist Bioscience RhabdoSeq Panel Preprocessing Pipeline
 
 A Snakemake pipeline for preprocessing paired-end sequencing data generated with the custom TWIST panel NCI_RhadoSeqFoc_TE 
 Generally follows the Twist Bioscience technical note (DOC-001337 TechNote - Processing Sequencing Data Utilizing UMI), 
-except UMIs are extracted into fastq headers during demultiplexing
+except UMIs are extracted into fastq headers during demultiplexing on machine
 
 ## Overview
 
@@ -22,8 +22,6 @@ This pipeline processes raw sequencing reads through the following steps:
 
 ## Quick Start
 
-Run the pipeline with [run_twist.sh](run_twist.sh) using `--runmode` and `--workdir`.
-
 ### 1. Initialize a run directory
 
 This creates the work directory and copies the template config file and sample sheet.
@@ -32,27 +30,24 @@ This creates the work directory and copies the template config file and sample s
 bash run_twist.sh --runmode=init --workdir=/path/to/my_run
 ```
 
-Then edit:
+### 2. Configure sample sheet and config
+
+Edit:
 - `/path/to/my_run/config/config.yaml`
 - `/path/to/my_run/config/samples.tsv`
-
-### 2. Configure sample sheet and paths
-
-Sample metadata must be TSV with columns `Sample`, `R1`, and `R2`.
-`R1`/`R2` are filenames relative to `raw_data_dir`.
-
-Example `samples.tsv`:
-
-```tsv
-Sample	R1	R2
-sample1	sample1_R1.fastq.gz	sample1_R2.fastq.gz
-sample2	sample2_R1.fastq.gz	sample2_R2.fastq.gz
-```
 
 Set raw data directory in `config.yaml`:
 
 ```yaml
 raw_data_dir: "/path/to/raw/fastqs"
+```
+
+Enter sample metadata in `samples.tsv`. Columns are `Sample`, `R1`, and `R2`, where `R1`/`R2` are filenames relative to `raw_data_dir`.
+
+```tsv
+Sample	R1	R2
+sample1	sample1_R1.fastq.gz	sample1_R2.fastq.gz
+sample2	sample2_R1.fastq.gz	sample2_R2.fastq.gz
 ```
 
 ### 3. Dry run
@@ -65,7 +60,7 @@ bash run_twist.sh --runmode=dryrun --workdir=/path/to/my_run
 
 ### 4. Run on SLURM
 
-Submit the pipeline to SLURM using the wrapper defaults and `config/biowulf.yaml`.
+Submit the pipeline to SLURM.
 
 ```bash
 bash run_twist.sh --runmode=run --workdir=/path/to/my_run
@@ -74,14 +69,8 @@ bash run_twist.sh --runmode=run --workdir=/path/to/my_run
 ### 5. Optional run modes
 
 ```bash
-# Run interactively on an allocated node
-bash run_twist.sh --runmode=runlocal --workdir=/path/to/my_run
-
 # Unlock a stale Snakemake lock
 bash run_twist.sh --runmode=unlock --workdir=/path/to/my_run
-
-# Recreate workdir from scratch
-bash run_twist.sh --runmode=reset --workdir=/path/to/my_run
 ```
 
 ### 6. Monitor run outputs
@@ -90,9 +79,10 @@ Key files written in the work directory:
 - `snakemake.log`
 - `snakemake.stats`
 - `runinfo.yaml`
-- `submit_script.sbatch`
 
 ### 7. View Results
+
+Major results include:
 
 ```
 results/
@@ -103,10 +93,7 @@ results/
 └── qc/
     ├── fastqc/
     ├── hsmetrics/
-    │   ├── sample1.pre_consensus_hs_metrics.txt
-    │   └── sample1.consensus_hs_metrics.txt
-    ├── multiqc_report.html
-    └── multiqc_data/
+    └── multiqc_report.html
 ```
 
 ## Input Data Format
@@ -135,21 +122,21 @@ These tags are then used by fgbio GroupReadsByUmi and downstream duplex consensu
 
 ### UMI Pattern
 
-By default, the pipeline extracts 5bp+5bp UMIs:
+By default, the pipeline extracts variable-length UMIs of any length separated by `+`:
 ```regex
-(?P<umi_1>.{5})\+(?P<umi_2>.{5})
+(?P<umi_1>[ACGTN]+)\+(?P<umi_2>[ACGTN]+)
 ```
 
-Modify in `config.yaml` if your UMI structure differs:
+Modify in `config.yaml` if you need fixed-length matching:
 ```yaml
-umi_pattern: "(?P<umi_1>.{6})\\+(?P<umi_2>.{6})"  # For 6bp+6bp
+umi_pattern: "(?P<umi_1>.{5})\\+(?P<umi_2>.{5})"  # For strict 5bp+5bp
 ```
 
 ## Pipeline Customization
 
-### Adjust UMI Grouping
-
 Edit `config.yaml`:
+
+### Adjust UMI Grouping
 
 ```yaml
 min_map_quality: 10
@@ -245,5 +232,3 @@ For issues or questions, check:
 1. `<results_dir>/logs/` directory for detailed error messages
 2. The tool-specific documentation
 3. The MultiQC report and `multiqc_data/` tables for pipeline QC summaries
-
-## License

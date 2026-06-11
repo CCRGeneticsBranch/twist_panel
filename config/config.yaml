@@ -1,4 +1,4 @@
-# Twist Bioscience UMI Panel Pipeline Configuration
+# Twist Bioscience RhabdoSeq Panel Pipeline Configuration
 
 # ---------------------------------------------------------------------------
 # Samples
@@ -43,8 +43,8 @@ modules:
 # ---------------------------------------------------------------------------
 # UMI configuration
 # Regex to extract UMI1 and UMI2 from the fastq header read name.
-# Default matches:  @...:GTCGT+CAGGA ...
-#                         ^^^^^  ^^^^^  (5bp each)
+# Default matches any length UMIs separated by '+', e.g. @...:GTCGT+CAGGA ...
+# Change to a fixed-length pattern (e.g. .{5}) if stricter matching is needed.
 # ---------------------------------------------------------------------------
 umi_pattern: "(?P<umi_1>[ACGTN]+)\\+(?P<umi_2>[ACGTN]+)"
 
@@ -65,7 +65,7 @@ min_reads: "2 1 1"
 
 # ---------------------------------------------------------------------------
 # CollectHsMetrics  (PDF step 6)
-# Provide Picard interval_list files for your capture panel.
+# Derived from target/probe files provided by Twist
 # ---------------------------------------------------------------------------
 bait_intervals:   "PIPELINE_HOME/resources/NCI_RhadoSeqFoc_TE.baits.interval_list"   # path to probe/bait interval_list
 target_intervals: "PIPELINE_HOME/resources/NCI_RhadoSeqFoc_TE.targets.interval_list"   # path to target interval_list
