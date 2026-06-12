@@ -146,7 +146,13 @@ min_map_quality: 10
 
 ```yaml
 min_input_base_quality: 30
+min_reads: "2 1 1"
 ```
+
+`min_reads` is passed to `fgbio CallDuplexConsensusReads --min-reads`.
+Examples:
+- `"2 1 1"` (default duplex-strict)
+- `"1 0 0"` (more permissive)
 
 ## Output Description
 

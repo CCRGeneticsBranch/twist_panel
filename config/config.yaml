@@ -59,6 +59,7 @@ min_map_quality: 10
 # Set minimum base quality for consensus input
 # ---------------------------------------------------------------------------
 min_input_base_quality: 30
+min_reads: "2 1 1"
 
 # ---------------------------------------------------------------------------
 # CollectHsMetrics  (PDF step 6)

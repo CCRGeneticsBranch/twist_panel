@@ -296,10 +296,10 @@ rule call_duplex_consensus:
     input:
         bam = f"{RESULTS}/bam/{{sample}}.grouped.bam"
     output:
-        ubam = temp(f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam"),
-        stats = f"{RESULTS}/bam/{{sample}}.consensus_calling_stats.txt"
+        ubam = temp(f"{RESULTS}/bam/{{sample}}.consensus_unmapped.bam")
     params:
-        min_input_base_quality = config["min_input_base_quality"]
+        min_input_base_quality = config["min_input_base_quality"],
+        min_reads = config["min_reads"]
     envmodules:
         MODULES["fgbio"],
         MODULES["java"]
@@ -308,11 +308,10 @@ rule call_duplex_consensus:
         java -Xmx4g -Djava.io.tmpdir=/lscratch/$SLURM_JOB_ID -jar $FGBIO_JAR CallDuplexConsensusReads \\
             --input={input.bam} \\
             --output={output.ubam} \\
-            --stats={output.stats} \\
             --error-rate-pre-umi=45 \\
             --error-rate-post-umi=30 \\
             --min-input-base-quality={params.min_input_base_quality}	\\
-            --min-reads 2 1 1
+            --min-reads {params.min_reads}
         """
 
 # ---------------------------------------------------------------------------
