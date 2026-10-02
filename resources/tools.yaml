@@ -1,0 +1,15 @@
+# Biowulf environment modules used by each rule
+# Recommended tool versions:
+#  bwa        0.7.17
+#  samtools   1.15.1
+#  fgbio      1.5.1   (specifically required — newer versions change MergeBamAlignment)
+#  picard     2.27.1
+#  gatk       4.2.6.1
+fastqc:   "fastqc"
+multiqc:  "multiqc"
+python:   "python"
+bwa:      "bwa/0.7.17"
+samtools: "samtools"
+picard:   "picard"
+java:     "java"
+fgbio:    "fgbio/2.0.2"

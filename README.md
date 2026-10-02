@@ -27,7 +27,7 @@ This pipeline processes raw sequencing reads through the following steps:
 This creates the work directory and copies the template config file and sample sheet.
 
 ```bash
-bash run_twist.sh --runmode=init --workdir=/path/to/my_run
+bash run_twist_panel --runmode=init --workdir=/path/to/my_run
 ```
 
 ### 2. Configure sample sheet and config
@@ -55,7 +55,7 @@ sample2	sample2_R1.fastq.gz	sample2_R2.fastq.gz
 Validate the rules without executing jobs.
 
 ```bash
-bash run_twist.sh --runmode=dryrun --workdir=/path/to/my_run
+bash run_twist_panel --runmode=dryrun --workdir=/path/to/my_run
 ```
 
 ### 4. Run on SLURM
@@ -63,14 +63,14 @@ bash run_twist.sh --runmode=dryrun --workdir=/path/to/my_run
 Submit the pipeline to SLURM.
 
 ```bash
-bash run_twist.sh --runmode=run --workdir=/path/to/my_run
+bash run_twist_panel --runmode=run --workdir=/path/to/my_run
 ```
 
 ### 5. Optional run modes
 
 ```bash
 # Unlock a stale Snakemake lock
-bash run_twist.sh --runmode=unlock --workdir=/path/to/my_run
+bash run_twist_panel --runmode=unlock --workdir=/path/to/my_run
 ```
 
 ### 6. Monitor run outputs
@@ -200,7 +200,7 @@ ls -lh /path/to/raw/fastqs/
 
 ### 3. Memory Issues
 
-Increase `mem` for the affected rule in `config/biowulf.yaml`:
+Increase `mem` for the affected rule in `resources/cluster.yaml` (before `init`) or `WORKDIR/config/cluster.yaml` (after `init`):
 
 ### 4. Module Loading Issues
 
@@ -223,7 +223,7 @@ The pipeline uses:
 - **Picard** (module-provided)
 - **fgbio** (module-provided)
 
-Update module versions in `config/config.yaml` under `modules` if needed.
+Update module versions in `resources/tools.yaml` if needed.
 
 ## References
 

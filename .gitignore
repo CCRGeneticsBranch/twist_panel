@@ -1,0 +1,14 @@
+# SLURM logs and Snakemake metadata from runs started inside the repo
+slurm-*.out
+.snakemake/
+
+# Large data files
+*.bam
+*.bai
+*.fastq
+*.fastq.gz
+
+# Editor and OS files
+.vscode/
+.DS_Store
+__pycache__/

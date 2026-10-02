@@ -4,6 +4,7 @@ Based on: DOC-001337 TechNote - Processing Sequencing Data Utilizing UMI (REV1)
 """
 
 import os
+import yaml
 import pandas as pd
 from pathlib import Path
 
@@ -39,7 +40,19 @@ SAMPLE_NAMES = list(SAMPLES.keys()) if SAMPLES else []
 UMI_PATTERN     = config["umi_pattern"]
 
 # Per-tool module names/versions are looked up directly in each rule
-MODULES = config["modules"]
+with open(config["tools"]) as f:
+    TOOLS = yaml.safe_load(f)
+
+# Pipeline version (bump VERSION file on each release)
+PIPELINE_HOME = os.path.dirname(workflow.basedir)
+with open(os.path.join(PIPELINE_HOME, "VERSION")) as f:
+    PIPELINE_VERSION = f.read().strip()
+print(f"Pipeline version: {PIPELINE_VERSION}")
+
+onstart:
+    os.makedirs(RESULTS, exist_ok=True)
+    with open(os.path.join(RESULTS, "pipeline_version.txt"), "w") as f:
+        f.write(f"{PIPELINE_VERSION}\n")
 
 localrules: multiqc
 
@@ -78,7 +91,7 @@ rule fastqc_raw:
     params:
         outdir = f"{RESULTS}/qc/fastqc"
     envmodules:
-        MODULES["fastqc"]
+        TOOLS["fastqc"]
     shell:
         """
         # Get the input filename without path
@@ -107,8 +120,8 @@ rule align_raw_fastq:
     params:
         ref = BWA_REFERENCE
     envmodules:
-        MODULES["bwa"],
-        MODULES["samtools"]
+        TOOLS["bwa"],
+        TOOLS["samtools"]
     shell:
         """
         bwa mem -t $SLURM_CPUS_PER_TASK {params.ref} {input.r1} {input.r2} | \
@@ -130,10 +143,10 @@ rule add_umi_tags_from_read_name:
         script = os.path.join(workflow.basedir, "scripts", "tag_umi_from_read_name.py"),
         umi_pattern = UMI_PATTERN
     envmodules:
-        MODULES["python"],
-        MODULES["samtools"],
-        MODULES["picard"],
-        MODULES["java"]
+        TOOLS["python"],
+        TOOLS["samtools"],
+        TOOLS["picard"],
+        TOOLS["java"]
     shell:
         """
         tmp_bam="{RESULTS}/bam/{wildcards.sample}.merged_no_rg.bam"
@@ -183,8 +196,8 @@ rule collect_hs_metrics:
         bait_intervals = config["bait_intervals"],
         target_intervals = config["target_intervals"]
     envmodules:
-        MODULES["picard"],
-        MODULES["java"]
+        TOOLS["picard"],
+        TOOLS["java"]
     shell:
         """
         java -Xmx4g -jar $PICARDJARPATH/picard.jar CollectHsMetrics \
@@ -208,9 +221,9 @@ rule set_mate_information:
         bam = temp(f"{RESULTS}/bam/{{sample}}.merged.mate_fixed.bam"),
         bai = temp(f"{RESULTS}/bam/{{sample}}.merged.mate_fixed.bai")
     envmodules:
-        MODULES["fgbio"],
-        MODULES["java"],
-        MODULES["samtools"]
+        TOOLS["fgbio"],
+        TOOLS["java"],
+        TOOLS["samtools"]
     shell:
         """
         qname_bam="{RESULTS}/bam/{wildcards.sample}.merged.qname.bam"
@@ -256,8 +269,8 @@ rule group_reads_by_umi:
     params:
         min_mapq = config["min_map_quality"]
     envmodules:
-        MODULES["fgbio"],
-        MODULES["java"]
+        TOOLS["fgbio"],
+        TOOLS["java"]
     shell:
         """
         java -Xmx4g -Djava.io.tmpdir=/lscratch/$SLURM_JOB_ID -jar $FGBIO_JAR GroupReadsByUmi \\
@@ -301,8 +314,8 @@ rule call_duplex_consensus:
         min_input_base_quality = config["min_input_base_quality"],
         min_reads = config["min_reads"]
     envmodules:
-        MODULES["fgbio"],
-        MODULES["java"]
+        TOOLS["fgbio"],
+        TOOLS["java"]
     shell:
         """
         java -Xmx4g -Djava.io.tmpdir=/lscratch/$SLURM_JOB_ID -jar $FGBIO_JAR CallDuplexConsensusReads \\
@@ -334,10 +347,10 @@ rule realign_consensus:
     params:
         ref = BWA_REFERENCE
     envmodules:
-        MODULES["picard"],
-        MODULES["java"],
-        MODULES["bwa"],
-        MODULES["samtools"]
+        TOOLS["picard"],
+        TOOLS["java"],
+        TOOLS["bwa"],
+        TOOLS["samtools"]
     shell:
         """
         set -euo pipefail
@@ -405,8 +418,8 @@ rule merge_consensus_bam:
     params:
         ref = REFERENCE
     envmodules:
-        MODULES["picard"],
-        MODULES["java"]
+        TOOLS["picard"],
+        TOOLS["java"]
     shell:
         """
         set -euo pipefail
@@ -490,8 +503,8 @@ rule collect_hs_metrics_post:
         bait_intervals = config["bait_intervals"],
         target_intervals = config["target_intervals"]
     envmodules:
-        MODULES["picard"],
-        MODULES["java"]
+        TOOLS["picard"],
+        TOOLS["java"]
     shell:
         """
         java -Xmx4g -jar $PICARDJARPATH/picard.jar CollectHsMetrics \
@@ -524,6 +537,6 @@ rule multiqc:
         indir = RESULTS,
         outdir = f"{RESULTS}/qc"
     envmodules:
-        MODULES["multiqc"]
+        TOOLS["multiqc"]
     shell:
         "multiqc {params.indir} -o {params.outdir} -f --fn_as_s_name"

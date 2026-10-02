@@ -13,32 +13,15 @@ samples: WORKDIR/config/samples.tsv
 # ---------------------------------------------------------------------------
 raw_data_dir: "/path/to/raw/fastqs"   # input fastq file directory - absolute path
 results_dir:  WORKDIR/results        # output directory
-scriptsdir:    PIPELINE_HOME/workflow/scripts/ # scripts directory
+
+# HPC environment modules (see resources/tools.yaml)
+tools: PIPELINE_HOME/resources/tools.yaml
 
 # ---------------------------------------------------------------------------
 # Reference genome
 # ---------------------------------------------------------------------------
 reference_genome: "/fdb/genomebrowser/fasta/hg38.fa"
 reference_bwa: "/fdb/bwa/indexes/hg38.fa"
-
-# ---------------------------------------------------------------------------
-# HPC module loading
-# Recommended tool versions:
-#  bwa        0.7.17
-#  samtools   1.15.1
-#  fgbio      1.5.1   (specifically required — newer versions change MergeBamAlignment)
-#  picard     2.27.1
-#  gatk       4.2.6.1
-# ---------------------------------------------------------------------------
-modules:
-  fastqc:   "fastqc"
-  multiqc:  "multiqc"
-  python:   "python"
-  bwa:      "bwa/0.7.17"
-  samtools: "samtools"
-  picard:   "picard"
-  java:     "java"
-  fgbio:    "fgbio/2.0.2"
 
 # ---------------------------------------------------------------------------
 # UMI configuration
