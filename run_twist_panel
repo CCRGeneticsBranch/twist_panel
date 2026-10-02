@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Launcher for the Twist targeted panel pipeline; shared logic is in bin/launcher.sh (copied from biowulf-snakemake-launcher).
+# shellcheck disable=SC2034  # variables below are read by launcher.sh
+
+PIPELINE_NAME="TWIST"
+PIPELINE_DESCRIPTION="run the Twist targeted panel (UMI duplex consensus) pipeline"
+CLUSTER_CONFIG_SRC="config/biowulf.yaml"
+
+PIPELINE_HOME="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+if [[ ! -f "${PIPELINE_HOME}/bin/launcher.sh" ]]; then
+  echo "ERROR: ${PIPELINE_HOME}/bin/launcher.sh not found." >&2
+  exit 1
+fi
+# shellcheck source=/dev/null
+source "${PIPELINE_HOME}/bin/launcher.sh"
+main "$@"
