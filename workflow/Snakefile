@@ -8,9 +8,6 @@ import yaml
 import pandas as pd
 from pathlib import Path
 
-# This Snakefile expects runtime configuration to be provided via --configfile.
-# Run with: snakemake --snakefile /path/to/Snakefile --configfile /path/to/run/config.yaml
-
 RAW_DATA  = config["raw_data_dir"]
 RESULTS   = config["results_dir"]
 REFERENCE = config["reference_genome"]
