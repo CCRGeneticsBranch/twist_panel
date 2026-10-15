@@ -135,6 +135,10 @@ Modules are listed in [resources/tools.yaml](resources/tools.yaml). Twist's reco
 | fgbio | `fgbio/2.0.2` | UMI grouping and duplex consensus | [fulcrumgenomics/fgbio](https://github.com/fulcrumgenomics/fgbio) |
 | MultiQC | `multiqc` | `multiqc` | Ewels et al. 2016, *Bioinformatics* [doi:10.1093/bioinformatics/btw354](https://doi.org/10.1093/bioinformatics/btw354) |
 
+## License
+
+Original pipeline code and documentation are licensed under MIT; see [LICENSE](LICENSE). The bundled panel interval lists retain any applicable third-party terms. The MIT license does not grant redistribution rights for external or bundled third-party resources.
+
 ## Versioning
 
 The pipeline version is in [VERSION](VERSION) and changes are listed in [CHANGELOG.md](CHANGELOG.md). Each run records the pipeline version, git commit and launcher version in `runinfo.yaml` and `results/pipeline_version.txt`. The launch script is a copy of [biowulf-snakemake-launcher](https://github.com/CCRGeneticsBranch/biowulf-snakemake-launcher) (`bin/launcher.sh`).
