@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Pehrsson
+    given-names: Erica
+    orcid: https://orcid.org/0000-0002-2968-6179
+    affiliation: >-
+      Advanced Biomedical Computational Science, Frederick National Laboratory
+      for Cancer Research, Frederick, MD 21702, USA; OMICS Technology Facility,
+      Genetics Branch, Center for Cancer Research, NCI, NIH, Bethesda, MD 20892, USA
+title: "Twist Bioscience Panel Preprocessing Pipeline"
+version: 1.0.0
+repository-code: https://github.com/CCRGeneticsBranch/twist_panel
+license: MIT
+type: software
