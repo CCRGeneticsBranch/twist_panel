@@ -82,7 +82,7 @@ The tagging step writes `ZA:Z:UMI1`, `ZB:Z:UMI2` and `RX:Z:UMI1-UMI2`, which are
 | `raw_data_dir` | `/path/to/raw/fastqs` | Folder containing the FASTQ files | Yes |
 | `reference_genome` | `/fdb/genomebrowser/fasta/hg38.fa` | Reference FASTA (UCSC hg38; requires `.fai` and `.dict` for Picard) | No |
 | `reference_bwa` | `/fdb/bwa/indexes/hg38.fa` | BWA index prefix (hg38) | No |
-| `bait_intervals`, `target_intervals` | `PIPELINE_HOME/resources/NCI_RhadoSeqFoc_TE.*.interval_list` | Bait/target interval lists for Picard `CollectHsMetrics`. The provided files were created from Twist probe and target BED files using Picard `BedToIntervalList`. Source BED provenance: **TODO**; redistribution permission: **TODO** | If panel differs |
+| `bait_intervals`, `target_intervals` | `PIPELINE_HOME/resources/NCI_RhadoSeqFoc_TE.*.interval_list` | Bait/target interval lists for Picard `CollectHsMetrics`. The provided files were created from Twist probe and target BED files for a custom panel using Picard `BedToIntervalList`. | If panel differs |
 | `umi_pattern` | `(?P<umi_1>[ACGTN]+)\\+(?P<umi_2>[ACGTN]+)` | Regex with named groups `umi_1` and `umi_2` matching UMIs in read names | If header format differs |
 | `min_map_quality` | `10` | `GroupReadsByUmi --min-map-q` | As needed |
 | `min_input_base_quality` | `30` | `CallDuplexConsensusReads --min-input-base-quality` | As needed |
